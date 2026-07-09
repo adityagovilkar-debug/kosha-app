@@ -38,8 +38,13 @@ export function TransactionRow({ tx, account, category, categoriesById, onEdit, 
           {isTransfer ? <ArrowRightLeft className="h-5 w-5 text-text-muted" /> : category?.emoji ?? (isSplitParent ? "🧾" : "💸")}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">
+          <p className="flex items-center gap-1.5 truncate text-sm font-medium">
             {isTransfer ? "Transfer" : tx.payee || category?.name || (isSplitParent ? "Split transaction" : "Uncategorized")}
+            {tx.status === "pending" && (
+              <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-500">
+                Pending
+              </span>
+            )}
           </p>
           <p className="truncate text-xs text-text-muted">
             {account?.name}

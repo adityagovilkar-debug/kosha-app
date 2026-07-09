@@ -79,12 +79,13 @@ export interface Transaction {
   status: TransactionStatus;
   transfer_group_id: string | null;
   parent_id: string | null;
+  recurring_rule_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export type NewTransaction = Pick<Transaction, "account_id" | "date" | "amount" | "type"> &
-  Partial<Pick<Transaction, "category_id" | "payee" | "note" | "tags" | "status" | "transfer_group_id" | "parent_id">>;
+  Partial<Pick<Transaction, "category_id" | "payee" | "note" | "tags" | "status" | "transfer_group_id" | "parent_id" | "recurring_rule_id">>;
 
 export interface TransactionFilters {
   accountId?: string;
@@ -95,3 +96,54 @@ export interface TransactionFilters {
   dateFrom?: string;
   dateTo?: string;
 }
+
+// ---------------------------------------------------------------------
+// Phase 2: recurring rules + budgets
+// ---------------------------------------------------------------------
+
+export type RecurringType = "expense" | "income" | "transfer";
+export type Frequency = "daily" | "weekly" | "monthly" | "quarterly" | "yearly";
+export type AmountMode = "fixed" | "variable";
+
+export interface RecurringRule {
+  id: string;
+  user_id: string;
+  name: string;
+  account_id: string;
+  to_account_id: string | null; // only for type === "transfer"
+  type: RecurringType;
+  category_id: string | null;
+  payee: string | null;
+  amount: number; // positive magnitude, minor units
+  note: string | null;
+  frequency: Frequency;
+  interval: number;
+  start_date: string;
+  end_date: string | null;
+  next_due: string;
+  amount_mode: AmountMode;
+  auto_post: boolean;
+  last_confirmed_amount: number | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NewRecurringRule = Pick<
+  RecurringRule,
+  "name" | "account_id" | "type" | "amount" | "frequency" | "interval" | "start_date" | "next_due"
+> &
+  Partial<Pick<RecurringRule, "to_account_id" | "category_id" | "payee" | "note" | "end_date" | "amount_mode" | "auto_post">>;
+
+export interface Budget {
+  id: string;
+  user_id: string;
+  category_id: string;
+  amount: number; // minor units, the monthly envelope
+  period: "monthly";
+  rollover: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NewBudget = Pick<Budget, "category_id" | "amount"> & Partial<Pick<Budget, "rollover">>;

@@ -40,8 +40,8 @@ export function CategoryArchiveDialog({ open, onClose, category, siblings }: Pro
     <Modal open={open} onClose={onClose} title={`Archive "${category.name}"?`}>
       <div className="space-y-4">
         <p className="text-sm text-text-muted">
-          Archived categories are hidden but never deleted, and any transactions using it stay intact. If you'd
-          rather move its existing transactions somewhere else first, pick a category below.
+          Archived categories are hidden but never deleted, and any transactions using it stay intact. If
+          you&apos;d rather move its existing transactions somewhere else first, pick a category below.
         </p>
         <div>
           <label className="label">Reassign existing transactions to</label>

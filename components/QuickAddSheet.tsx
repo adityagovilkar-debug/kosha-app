@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Camera, Delete, Plus, Trash2, ArrowRightLeft } from "lucide-react";
 import { Modal } from "./Modal";
@@ -16,7 +16,7 @@ import {
 import { useRecentPayees } from "@/lib/kosha/payees";
 import { parseAmountInput, formatMoney, minorToRupees } from "@/lib/money";
 import { paletteColor } from "@/lib/palette";
-import type { CategoryKind } from "@/lib/kosha/types";
+import type { CategoryKind, Transaction } from "@/lib/kosha/types";
 
 type Mode = "expense" | "income" | "transfer";
 const LAST_ACCOUNT_KEY = "kosha-last-account";
@@ -30,6 +30,9 @@ function yesterday() {
   d.setDate(d.getDate() - 1);
   return d.toISOString().slice(0, 10);
 }
+function modeForTransaction(tx: Transaction): Mode {
+  return tx.type === "income" ? "income" : tx.type === "transfer" ? "transfer" : "expense";
+}
 
 interface SplitRow {
   key: string;
@@ -37,8 +40,21 @@ interface SplitRow {
   amount: string;
 }
 
+// Thin wrapper: the Modal only ever shows one "session" at a time, and a
+// fresh QuickAddForm instance (keyed by what's being edited) is mounted
+// each time it opens — so all form state initializes directly from
+// `editing` via useState initializers instead of an effect that resets
+// state on every prop change.
 export function QuickAddSheet() {
   const { isOpen, editing, close } = useQuickAdd();
+  return (
+    <Modal open={isOpen} onClose={close} title={editing ? "Edit transaction" : "Add transaction"}>
+      {isOpen && <QuickAddForm key={editing?.id ?? "new"} editing={editing} close={close} />}
+    </Modal>
+  );
+}
+
+function QuickAddForm({ editing, close }: { editing: Transaction | null; close: () => void }) {
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
   const { data: recentPayees } = useRecentPayees();
@@ -48,49 +64,26 @@ export function QuickAddSheet() {
   const createSplit = useCreateSplitTransaction();
   const updateTx = useUpdateTransaction();
 
-  const [mode, setMode] = useState<Mode>("expense");
-  const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState("");
+  const [mode, setMode] = useState<Mode>(() => (editing ? modeForTransaction(editing) : "expense"));
+  const [amount, setAmount] = useState(() => (editing ? String(minorToRupees(Math.abs(editing.amount))) : ""));
+  const [accountId, setAccountId] = useState(() => {
+    if (editing) return editing.account_id;
+    return (typeof window !== "undefined" && localStorage.getItem(LAST_ACCOUNT_KEY)) || "";
+  });
   const [toAccountId, setToAccountId] = useState("");
-  const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [date, setDate] = useState(today());
-  const [payee, setPayee] = useState("");
-  const [note, setNote] = useState("");
-  const [tagsInput, setTagsInput] = useState("");
+  const [categoryId, setCategoryId] = useState<string | null>(() => editing?.category_id ?? null);
+  const [date, setDate] = useState(() => editing?.date ?? today());
+  const [payee, setPayee] = useState(() => editing?.payee ?? "");
+  const [note, setNote] = useState(() => editing?.note ?? "");
+  const [tagsInput, setTagsInput] = useState(() => (editing?.tags ?? []).join(", "));
   const [splitMode, setSplitMode] = useState(false);
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Reset (or prefill for editing) whenever the sheet opens.
-  useEffect(() => {
-    if (!isOpen) return;
-    if (editing) {
-      const kind: Mode = editing.type === "income" ? "income" : editing.type === "transfer" ? "transfer" : "expense";
-      setMode(kind);
-      setAmount(String(minorToRupees(Math.abs(editing.amount))));
-      setAccountId(editing.account_id);
-      setCategoryId(editing.category_id);
-      setDate(editing.date);
-      setPayee(editing.payee ?? "");
-      setNote(editing.note ?? "");
-      setTagsInput((editing.tags ?? []).join(", "));
-      setSplitMode(false);
-    } else {
-      const lastAccount = (typeof window !== "undefined" && localStorage.getItem(LAST_ACCOUNT_KEY)) || "";
-      setMode("expense");
-      setAmount("");
-      setAccountId(lastAccount || accounts?.[0]?.id || "");
-      setToAccountId("");
-      setCategoryId(null);
-      setDate(today());
-      setPayee("");
-      setNote("");
-      setTagsInput("");
-      setSplitMode(false);
-      setSplits([]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, editing, accounts]);
+  // Derived, not stored: falls back to the first account once accounts
+  // finish loading, if nothing was picked from localStorage. Avoids an
+  // effect that would just be mirroring async data into state.
+  const effectiveAccountId = accountId || accounts?.[0]?.id || "";
 
   const kindForMode: CategoryKind = mode === "income" ? "income" : "expense";
   const leafCategories = useMemo(() => {
@@ -143,16 +136,16 @@ export function QuickAddSheet() {
     try {
       if (mode === "transfer") {
         if (!total) return toast.error("Enter an amount");
-        if (!accountId || !toAccountId) return toast.error("Choose both accounts");
-        if (accountId === toAccountId) return toast.error("Pick two different accounts");
+        if (!effectiveAccountId || !toAccountId) return toast.error("Choose both accounts");
+        if (effectiveAccountId === toAccountId) return toast.error("Pick two different accounts");
         setSaving(true);
-        await createTransfer.mutateAsync({ fromAccountId: accountId, toAccountId, date, amount: total, note, tags });
+        await createTransfer.mutateAsync({ fromAccountId: effectiveAccountId, toAccountId, date, amount: total, note, tags });
       } else if (splitMode) {
         if (!splitsValid) return toast.error(total === null ? "Enter an amount" : "Splits must add up to the total and each need a category");
-        if (!accountId) return toast.error("Choose an account");
+        if (!effectiveAccountId) return toast.error("Choose an account");
         setSaving(true);
         await createSplit.mutateAsync({
-          account_id: accountId,
+          account_id: effectiveAccountId,
           date,
           type: mode,
           payee: payee || undefined,
@@ -160,20 +153,20 @@ export function QuickAddSheet() {
           tags,
           splits: splits.map((s) => ({ category_id: s.categoryId, amount: parseAmountInput(s.amount)! })),
         });
-        localStorage.setItem(LAST_ACCOUNT_KEY, accountId);
+        localStorage.setItem(LAST_ACCOUNT_KEY, effectiveAccountId);
       } else {
         if (!total) return toast.error("Enter an amount");
-        if (!accountId) return toast.error("Choose an account");
+        if (!effectiveAccountId) return toast.error("Choose an account");
         const signed = mode === "expense" ? -total : total;
         setSaving(true);
         if (editing) {
           await updateTx.mutateAsync({
             id: editing.id,
-            patch: { account_id: accountId, date, amount: signed, type: mode, category_id: categoryId, payee: payee || undefined, note: note || undefined, tags },
+            patch: { account_id: effectiveAccountId, date, amount: signed, type: mode, category_id: categoryId, payee: payee || undefined, note: note || undefined, tags },
           });
         } else {
           await createTx.mutateAsync({
-            account_id: accountId,
+            account_id: effectiveAccountId,
             date,
             amount: signed,
             type: mode,
@@ -182,7 +175,7 @@ export function QuickAddSheet() {
             note: note || undefined,
             tags,
           });
-          localStorage.setItem(LAST_ACCOUNT_KEY, accountId);
+          localStorage.setItem(LAST_ACCOUNT_KEY, effectiveAccountId);
         }
       }
       toast.success(editing ? "Transaction updated" : "Saved ✓");
@@ -201,205 +194,203 @@ export function QuickAddSheet() {
   const activeAccounts = accounts ?? [];
 
   return (
-    <Modal open={isOpen} onClose={close} title={editing ? "Edit transaction" : "Add transaction"}>
-      <div className="space-y-4">
-        {/* Type tabs */}
-        <div className="grid grid-cols-3 gap-1 rounded-xl bg-surface-2 p-1">
-          {(["expense", "income", "transfer"] as Mode[]).map((m) => (
+    <div className="space-y-4">
+      {/* Type tabs */}
+      <div className="grid grid-cols-3 gap-1 rounded-xl bg-surface-2 p-1">
+        {(["expense", "income", "transfer"] as Mode[]).map((m) => (
+          <button
+            key={m}
+            type="button"
+            disabled={!!editing}
+            onClick={() => setMode(m)}
+            className={`rounded-lg py-2 text-sm font-semibold capitalize transition disabled:opacity-40 ${
+              mode === m ? "bg-surface text-text shadow-sm" : "text-text-muted"
+            }`}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+
+      {/* Amount */}
+      <div className="rounded-2xl border p-4 text-center" style={{ borderColor: "var(--border)" }}>
+        <p className={`money text-4xl font-bold ${mode === "expense" ? "text-expense" : mode === "income" ? "text-income" : "text-text"}`}>
+          {amount ? amount : "0"}
+        </p>
+        {total !== null && amount.includes("+") && (
+          <p className="money mt-1 text-sm text-text-muted">= {formatMoney(total)}</p>
+        )}
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          {KEYS.map((k) => (
             <button
-              key={m}
+              key={k}
               type="button"
-              disabled={!!editing}
-              onClick={() => setMode(m)}
-              className={`rounded-lg py-2 text-sm font-semibold capitalize transition disabled:opacity-40 ${
-                mode === m ? "bg-surface text-text shadow-sm" : "text-text-muted"
-              }`}
+              onClick={() => pressKey(k)}
+              className="btn-outline !min-h-[40px] text-lg font-semibold"
             >
-              {m}
+              {k === "⌫" ? <Delete className="mx-auto h-5 w-5" /> : k}
             </button>
           ))}
         </div>
+      </div>
 
-        {/* Amount */}
-        <div className="rounded-2xl border p-4 text-center" style={{ borderColor: "var(--border)" }}>
-          <p className={`money text-4xl font-bold ${mode === "expense" ? "text-expense" : mode === "income" ? "text-income" : "text-text"}`}>
-            {amount ? amount : "0"}
-          </p>
-          {total !== null && amount.includes("+") && (
-            <p className="money mt-1 text-sm text-text-muted">= {formatMoney(total)}</p>
-          )}
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {KEYS.map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => pressKey(k)}
-                className="btn-outline !min-h-[40px] text-lg font-semibold"
-              >
-                {k === "⌫" ? <Delete className="mx-auto h-5 w-5" /> : k}
-              </button>
+      {/* Transfer accounts, or single account + category */}
+      {mode === "transfer" ? (
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <select className="select" value={effectiveAccountId} onChange={(e) => setAccountId(e.target.value)}>
+            <option value="">From…</option>
+            {activeAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.icon} {a.name}
+              </option>
             ))}
-          </div>
+          </select>
+          <ArrowRightLeft className="h-4 w-4 text-text-muted" />
+          <select className="select" value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>
+            <option value="">To…</option>
+            {activeAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.icon} {a.name}
+              </option>
+            ))}
+          </select>
         </div>
+      ) : (
+        <>
+          <select className="select" value={effectiveAccountId} onChange={(e) => setAccountId(e.target.value)}>
+            <option value="">Choose account…</option>
+            {activeAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.icon} {a.name}
+              </option>
+            ))}
+          </select>
 
-        {/* Transfer accounts, or single account + category */}
-        {mode === "transfer" ? (
-          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-            <select className="select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              <option value="">From…</option>
-              {activeAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.icon} {a.name}
-                </option>
-              ))}
-            </select>
-            <ArrowRightLeft className="h-4 w-4 text-text-muted" />
-            <select className="select" value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>
-              <option value="">To…</option>
-              {activeAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.icon} {a.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <>
-            <select className="select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-              <option value="">Choose account…</option>
-              {activeAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.icon} {a.name}
-                </option>
-              ))}
-            </select>
-
-            {!splitMode && (
-              <div>
-                <div className="grid grid-cols-4 gap-2">
-                  {leafCategories.map((c) => (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => setCategoryId(c.id)}
-                      className={`flex flex-col items-center gap-1 rounded-xl border py-2 text-xs font-medium transition ${
-                        categoryId === c.id ? "border-brand-500 bg-brand-500/10" : "hover:bg-surface-2"
-                      }`}
-                      style={{ borderColor: categoryId === c.id ? undefined : "var(--border)" }}
+          {!splitMode && (
+            <div>
+              <div className="grid grid-cols-4 gap-2">
+                {leafCategories.map((c) => (
+                  <button
+                    type="button"
+                    key={c.id}
+                    onClick={() => setCategoryId(c.id)}
+                    className={`flex flex-col items-center gap-1 rounded-xl border py-2 text-xs font-medium transition ${
+                      categoryId === c.id ? "border-brand-500 bg-brand-500/10" : "hover:bg-surface-2"
+                    }`}
+                    style={{ borderColor: categoryId === c.id ? undefined : "var(--border)" }}
+                  >
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-base"
+                      style={{ backgroundColor: `${paletteColor(c.color)}26` }}
                     >
-                      <span
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-base"
-                        style={{ backgroundColor: `${paletteColor(c.color)}26` }}
-                      >
-                        {c.emoji}
-                      </span>
-                      <span className="truncate w-full text-center">{c.name}</span>
-                    </button>
-                  ))}
-                </div>
-                {leafCategories.length === 0 && (
-                  <p className="mt-2 text-sm text-text-muted">No {kindForMode} categories yet — add some in Categories.</p>
-                )}
-              </div>
-            )}
-
-            {!editing && (
-              <button
-                type="button"
-                className="text-sm font-semibold text-brand-400"
-                onClick={() => {
-                  setSplitMode((v) => !v);
-                  if (splits.length === 0) addSplitRow();
-                }}
-              >
-                {splitMode ? "Use a single category instead" : "Split into multiple categories"}
-              </button>
-            )}
-
-            {splitMode && (
-              <div className="space-y-2 rounded-xl border p-3" style={{ borderColor: "var(--border)" }}>
-                {splits.map((row) => (
-                  <div key={row.key} className="flex items-center gap-2">
-                    <select
-                      className="select flex-1"
-                      value={row.categoryId}
-                      onChange={(e) => updateSplitRow(row.key, { categoryId: e.target.value })}
-                    >
-                      <option value="">Category…</option>
-                      {leafCategories.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.emoji} {c.name}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      className="input money w-28"
-                      placeholder="0"
-                      value={row.amount}
-                      onChange={(e) => updateSplitRow(row.key, { amount: e.target.value })}
-                    />
-                    <button type="button" className="btn-ghost !min-h-0 !p-2" onClick={() => removeSplitRow(row.key)}>
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </div>
+                      {c.emoji}
+                    </span>
+                    <span className="truncate w-full text-center">{c.name}</span>
+                  </button>
                 ))}
-                <button type="button" className="text-sm font-semibold text-brand-400" onClick={addSplitRow}>
-                  <Plus className="mr-1 inline h-3.5 w-3.5" /> Add split
-                </button>
-                <p className={`text-xs ${total !== null && splitTotal === total ? "text-income" : "text-text-muted"}`}>
-                  {formatMoney(splitTotal)} of {total !== null ? formatMoney(total) : "—"}
-                </p>
               </div>
-            )}
-          </>
-        )}
+              {leafCategories.length === 0 && (
+                <p className="mt-2 text-sm text-text-muted">No {kindForMode} categories yet — add some in Categories.</p>
+              )}
+            </div>
+          )}
 
-        {/* Date */}
-        <div className="flex items-center gap-2">
-          <input className="input flex-1" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-          <button type="button" className="btn-outline shrink-0" onClick={() => setDate(today())}>
-            Today
-          </button>
-          <button type="button" className="btn-outline shrink-0" onClick={() => setDate(yesterday())}>
-            Yesterday
-          </button>
-        </div>
-
-        {mode !== "transfer" && (
-          <div>
-            <input
-              className="input"
-              list="kosha-payees"
-              placeholder="Payee (optional)"
-              value={payee}
-              onChange={(e) => setPayee(e.target.value)}
-            />
-            <datalist id="kosha-payees">
-              {(recentPayees ?? []).map((p) => (
-                <option key={p} value={p} />
-              ))}
-            </datalist>
-          </div>
-        )}
-
-        <input className="input" placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
-        <input className="input" placeholder="Tags, comma separated (optional)" value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} />
-
-        <button type="button" className="btn-outline w-full" disabled title="Receipt scanning arrives in Phase 3">
-          <Camera className="h-5 w-5" /> Scan receipt (coming soon)
-        </button>
-
-        <div className="flex gap-2 pt-1">
-          <button type="button" className="btn-primary flex-1" onClick={() => submit(false)} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
-          </button>
           {!editing && (
-            <button type="button" className="btn-outline flex-1" onClick={() => submit(true)} disabled={saving}>
-              Save & add another
+            <button
+              type="button"
+              className="text-sm font-semibold text-brand-400"
+              onClick={() => {
+                setSplitMode((v) => !v);
+                if (splits.length === 0) addSplitRow();
+              }}
+            >
+              {splitMode ? "Use a single category instead" : "Split into multiple categories"}
             </button>
           )}
-        </div>
+
+          {splitMode && (
+            <div className="space-y-2 rounded-xl border p-3" style={{ borderColor: "var(--border)" }}>
+              {splits.map((row) => (
+                <div key={row.key} className="flex items-center gap-2">
+                  <select
+                    className="select flex-1"
+                    value={row.categoryId}
+                    onChange={(e) => updateSplitRow(row.key, { categoryId: e.target.value })}
+                  >
+                    <option value="">Category…</option>
+                    {leafCategories.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.emoji} {c.name}
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    className="input money w-28"
+                    placeholder="0"
+                    value={row.amount}
+                    onChange={(e) => updateSplitRow(row.key, { amount: e.target.value })}
+                  />
+                  <button type="button" className="btn-ghost !min-h-0 !p-2" onClick={() => removeSplitRow(row.key)}>
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+              <button type="button" className="text-sm font-semibold text-brand-400" onClick={addSplitRow}>
+                <Plus className="mr-1 inline h-3.5 w-3.5" /> Add split
+              </button>
+              <p className={`text-xs ${total !== null && splitTotal === total ? "text-income" : "text-text-muted"}`}>
+                {formatMoney(splitTotal)} of {total !== null ? formatMoney(total) : "—"}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Date */}
+      <div className="flex items-center gap-2">
+        <input className="input flex-1" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <button type="button" className="btn-outline shrink-0" onClick={() => setDate(today())}>
+          Today
+        </button>
+        <button type="button" className="btn-outline shrink-0" onClick={() => setDate(yesterday())}>
+          Yesterday
+        </button>
       </div>
-    </Modal>
+
+      {mode !== "transfer" && (
+        <div>
+          <input
+            className="input"
+            list="kosha-payees"
+            placeholder="Payee (optional)"
+            value={payee}
+            onChange={(e) => setPayee(e.target.value)}
+          />
+          <datalist id="kosha-payees">
+            {(recentPayees ?? []).map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
+        </div>
+      )}
+
+      <input className="input" placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
+      <input className="input" placeholder="Tags, comma separated (optional)" value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} />
+
+      <button type="button" className="btn-outline w-full" disabled title="Receipt scanning arrives in Phase 3">
+        <Camera className="h-5 w-5" /> Scan receipt (coming soon)
+      </button>
+
+      <div className="flex gap-2 pt-1">
+        <button type="button" className="btn-primary flex-1" onClick={() => submit(false)} disabled={saving}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+        {!editing && (
+          <button type="button" className="btn-outline flex-1" onClick={() => submit(true)} disabled={saving}>
+            Save & add another
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

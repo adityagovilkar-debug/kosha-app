@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Receipt, Wallet, Tags, Plus } from "lucide-react";
+import { Home, Receipt, CalendarClock, Wallet, Tags, Plus } from "lucide-react";
 import { useQuickAdd } from "./QuickAddProvider";
 import { APP_NAME } from "@/lib/brand";
 
 const NAV_ITEMS = [
   { href: "/", label: "Home", icon: Home },
   { href: "/transactions", label: "Transactions", icon: Receipt },
+  { href: "/plan", label: "Plan", icon: CalendarClock },
   { href: "/accounts", label: "Accounts", icon: Wallet },
   { href: "/categories", label: "Categories", icon: Tags },
 ];

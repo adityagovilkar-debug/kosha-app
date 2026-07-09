@@ -87,7 +87,12 @@ export function useRecentTransactions(limit = 8) {
   });
 }
 
-/** All transactions within a date range (used for the month in/out summary). */
+/**
+ * Cleared transactions within a date range (used for month in/out and
+ * safe-to-spend). Pending rows — unconfirmed recurring occurrences or
+ * receipt-scan drafts — haven't actually happened yet, so they're excluded
+ * from real cash-flow totals (KOSHA-PLAN.md principle #3).
+ */
 export function useTransactionsInRange(dateFrom: string, dateTo: string) {
   return useQuery({
     queryKey: ["kosha_transactions", "range", dateFrom, dateTo],
@@ -95,6 +100,7 @@ export function useTransactionsInRange(dateFrom: string, dateTo: string) {
       const { data, error } = await sb()
         .from("kosha_transactions")
         .select("*")
+        .eq("status", "cleared")
         .gte("date", dateFrom)
         .lte("date", dateTo);
       if (error) throw error;

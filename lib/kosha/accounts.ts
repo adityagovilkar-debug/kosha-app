@@ -67,16 +67,18 @@ export function useArchiveAccount() {
 }
 
 /**
- * Derived balances: opening_balance + sum of each account's transactions.
- * Fetches only (account_id, amount) — cheap even at a few thousand rows.
- * A cached balance column can replace this later if performance demands it
- * (KOSHA-PLAN.md §3.1).
+ * Derived balances: opening_balance + sum of each account's CLEARED
+ * transactions (pending recurring occurrences / receipt drafts haven't
+ * actually happened yet, so they don't move the balance — KOSHA-PLAN.md
+ * principle #3). Fetches only (account_id, amount) — cheap even at a few
+ * thousand rows. A cached balance column can replace this later if
+ * performance demands it (KOSHA-PLAN.md §3.1).
  */
 export function useAccountBalances() {
   return useQuery({
     queryKey: ["kosha_account_balances"],
     queryFn: async (): Promise<Record<string, number>> => {
-      const { data, error } = await sb().from("kosha_transactions").select("account_id, amount");
+      const { data, error } = await sb().from("kosha_transactions").select("account_id, amount").eq("status", "cleared");
       if (error) throw error;
       const sums: Record<string, number> = {};
       for (const row of data ?? []) {
