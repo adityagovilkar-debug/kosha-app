@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ArrowRightLeft, Trash2 } from "lucide-react";
-import { formatMoneySigned } from "@/lib/money";
+import { ChevronDown, ArrowRightLeft, Trash2, Paperclip } from "lucide-react";
+import { formatMoneySigned, formatMoney } from "@/lib/money";
 import { paletteColor } from "@/lib/palette";
 import { useSplitChildren } from "@/lib/kosha/transactions";
+import { useReceipt, useReceiptImageUrl } from "@/lib/kosha/receipts";
 import type { Account, Category, Transaction } from "@/lib/kosha/types";
 
 interface Props {
@@ -20,6 +21,8 @@ interface Props {
 export function TransactionRow({ tx, account, category, categoriesById, onEdit, onDelete, isSplitParent }: Props) {
   const [expanded, setExpanded] = useState(false);
   const { data: children } = useSplitChildren(expanded ? tx.id : null);
+  const { data: receipt } = useReceipt(tx.receipt_id);
+  const { data: receiptUrl } = useReceiptImageUrl(receipt?.storage_path ?? null);
   const isTransfer = tx.type === "transfer";
   const editable = !isTransfer && !isSplitParent;
 
@@ -49,11 +52,24 @@ export function TransactionRow({ tx, account, category, categoriesById, onEdit, 
           <p className="truncate text-xs text-text-muted">
             {account?.name}
             {!isTransfer && category && ` · ${category.name}`}
+            {tx.original_currency && tx.original_amount != null && ` · ${formatMoney(tx.original_amount, tx.original_currency)}`}
             {tx.note && ` · ${tx.note}`}
           </p>
         </div>
         <p className={`money shrink-0 text-sm font-bold ${amountClass}`}>{formatMoneySigned(tx.amount, account?.currency)}</p>
         {isSplitParent && <ChevronDown className={`h-4 w-4 shrink-0 text-text-muted transition ${expanded ? "rotate-180" : ""}`} />}
+        {receiptUrl && (
+          <a
+            href={receiptUrl}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="btn-ghost !min-h-0 shrink-0 !p-1.5"
+            aria-label="View receipt"
+          >
+            <Paperclip className="h-3.5 w-3.5" />
+          </a>
+        )}
         {onDelete && (
           <button
             className="btn-ghost !min-h-0 shrink-0 !p-1.5"

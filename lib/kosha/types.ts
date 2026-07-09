@@ -80,12 +80,36 @@ export interface Transaction {
   transfer_group_id: string | null;
   parent_id: string | null;
   recurring_rule_id: string | null;
+  // Multi-currency (Phase 3, KOSHA-PLAN.md §3.3): `amount` always stays
+  // the account-currency value; these record what was actually paid.
+  original_currency: string | null;
+  original_amount: number | null; // minor units, original_currency
+  fx_rate: number | null; // INR per 1 unit of original_currency
+  base_amount: number | null; // INR-equivalent, minor units
+  receipt_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export type NewTransaction = Pick<Transaction, "account_id" | "date" | "amount" | "type"> &
-  Partial<Pick<Transaction, "category_id" | "payee" | "note" | "tags" | "status" | "transfer_group_id" | "parent_id" | "recurring_rule_id">>;
+  Partial<
+    Pick<
+      Transaction,
+      | "category_id"
+      | "payee"
+      | "note"
+      | "tags"
+      | "status"
+      | "transfer_group_id"
+      | "parent_id"
+      | "recurring_rule_id"
+      | "original_currency"
+      | "original_amount"
+      | "fx_rate"
+      | "base_amount"
+      | "receipt_id"
+    >
+  >;
 
 export interface TransactionFilters {
   accountId?: string;
@@ -147,3 +171,29 @@ export interface Budget {
 }
 
 export type NewBudget = Pick<Budget, "category_id" | "amount"> & Partial<Pick<Budget, "rollover">>;
+
+// ---------------------------------------------------------------------
+// Phase 3: receipts
+// ---------------------------------------------------------------------
+
+export type OcrStatus = "pending" | "done" | "failed";
+
+export interface ExtractedReceipt {
+  merchant: string | null;
+  date: string | null; // YYYY-MM-DD
+  total: number | null; // minor units
+  currency: string | null;
+  tax: number | null; // minor units
+  line_items: { name: string; qty: number | null; price: number | null }[];
+  confidence: number | null;
+}
+
+export interface Receipt {
+  id: string;
+  user_id: string;
+  storage_path: string;
+  ocr_status: OcrStatus;
+  extracted: ExtractedReceipt | null;
+  error: string | null;
+  uploaded_at: string;
+}

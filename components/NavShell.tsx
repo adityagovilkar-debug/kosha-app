@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Receipt, CalendarClock, Wallet, Tags, Plus } from "lucide-react";
+import { Home, Receipt, CalendarClock, Wallet, Tags, Plus, Settings } from "lucide-react";
 import { useQuickAdd } from "./QuickAddProvider";
 import { APP_NAME } from "@/lib/brand";
 
@@ -49,11 +49,29 @@ export function NavShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          <Link
+            href="/settings"
+            className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+              pathname?.startsWith("/settings") ? "bg-surface-2 text-text" : "text-text-muted hover:bg-surface-2 hover:text-text"
+            }`}
+          >
+            <Settings className="h-5 w-5" />
+            Settings
+          </Link>
         </nav>
         <button className="btn-primary mt-4 w-full" onClick={() => open()}>
           <Plus className="h-5 w-5" /> Add transaction
         </button>
       </aside>
+
+      {/* Mobile settings shortcut */}
+      <Link
+        href="/settings"
+        className="glass fixed right-4 top-4 z-40 flex h-10 w-10 items-center justify-center rounded-full md:hidden"
+        aria-label="Settings"
+      >
+        <Settings className="h-5 w-5 text-text-muted" />
+      </Link>
 
       {/* Main content */}
       <main className="flex-1 pb-24 md:pb-0">{children}</main>

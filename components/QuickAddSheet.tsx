@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Camera, Delete, Plus, Trash2, ArrowRightLeft } from "lucide-react";
+import { Camera, Delete, Plus, Trash2, ArrowRightLeft, Paperclip } from "lucide-react";
 import { Modal } from "./Modal";
 import { useQuickAdd } from "./QuickAddProvider";
 import { useAccounts } from "@/lib/kosha/accounts";
@@ -14,6 +14,9 @@ import {
   useUpdateTransaction,
 } from "@/lib/kosha/transactions";
 import { useRecentPayees } from "@/lib/kosha/payees";
+import { COMMON_CURRENCIES, useFxRate } from "@/lib/kosha/fx";
+import { useTripMode } from "@/lib/kosha/settings";
+import { useUploadReceipt, useReceipt, useReceiptImageUrl } from "@/lib/kosha/receipts";
 import { parseAmountInput, formatMoney, minorToRupees } from "@/lib/money";
 import { paletteColor } from "@/lib/palette";
 import type { CategoryKind, Transaction } from "@/lib/kosha/types";
@@ -75,10 +78,34 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
   const [date, setDate] = useState(() => editing?.date ?? today());
   const [payee, setPayee] = useState(() => editing?.payee ?? "");
   const [note, setNote] = useState(() => editing?.note ?? "");
-  const [tagsInput, setTagsInput] = useState(() => (editing?.tags ?? []).join(", "));
+  const trip = useTripMode();
+  const [tagsInput, setTagsInput] = useState(() => {
+    if (editing) return (editing.tags ?? []).join(", ");
+    return trip?.enabled ? trip.tag : "";
+  });
   const [splitMode, setSplitMode] = useState(false);
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const [receiptId, setReceiptId] = useState<string | null>(editing?.receipt_id ?? null);
+  const uploadReceipt = useUploadReceipt();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { data: receiptRow } = useReceipt(receiptId);
+  const { data: receiptUrl } = useReceiptImageUrl(receiptRow?.storage_path ?? null);
+
+  // Multi-currency (Phase 3, KOSHA-PLAN.md §3.3 + §5). The keypad amount is
+  // in whichever `currency` is selected; when it differs from INR it's
+  // converted using the fetched (or overridden) rate. This assumes the
+  // owning account is itself INR-denominated, true for every account in
+  // this app so far — genuinely foreign-currency accounts aren't handled.
+  const [currency, setCurrency] = useState(() => {
+    if (editing) return editing.original_currency ?? "INR";
+    return trip?.enabled ? trip.currency : "INR";
+  });
+  const [fxRateOverride, setFxRateOverride] = useState(() => (editing?.fx_rate ? String(editing.fx_rate) : ""));
+  const isForeign = mode !== "transfer" && !splitMode && currency !== "INR";
+  const { data: fetchedRate, isLoading: fxLoading } = useFxRate(date, currency, isForeign);
+  const effectiveRate = fxRateOverride ? parseFloat(fxRateOverride) : fetchedRate;
 
   // Derived, not stored: falls back to the first account once accounts
   // finish loading, if nothing was picked from localStorage. Avoids an
@@ -91,7 +118,11 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
     return groups.filter((g) => g.kind === kindForMode).flatMap((g) => g.children);
   }, [categories, kindForMode]);
 
+  // `total` is in whichever `currency` is selected; `accountAmount` is
+  // always the account-currency (INR) value actually stored on the
+  // transaction. They're the same number unless isForeign is true.
   const total = parseAmountInput(amount);
+  const accountAmount = isForeign ? (total !== null && effectiveRate ? Math.round(total * effectiveRate) : null) : total;
   const splitTotal = splits.reduce((sum, s) => sum + (parseAmountInput(s.amount) ?? 0), 0);
   const splitsValid = splitMode && splits.length > 0 && total !== null && splitTotal === total && splits.every((s) => s.categoryId);
 
@@ -105,6 +136,28 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
       if (k === "." && /(^|\+)[^+]*\.[^+]*$/.test(a + k)) return a; // one decimal per addend
       return a + k;
     });
+  }
+
+  async function onReceiptSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+    try {
+      const result = await uploadReceipt.mutateAsync(file);
+      setReceiptId(result.receiptId);
+      const ex = result.extracted;
+      if (ex) {
+        if (ex.merchant) setPayee(ex.merchant);
+        if (ex.date) setDate(ex.date);
+        if (ex.total != null) setAmount(String(minorToRupees(ex.total)));
+        if (ex.currency && ex.currency !== "INR") setCurrency(ex.currency);
+        toast.success("Receipt scanned — check the details below");
+      } else {
+        toast("Receipt attached — fill in the details");
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Couldn't upload that receipt");
+    }
   }
 
   function addSplitRow() {
@@ -156,13 +209,18 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
         localStorage.setItem(LAST_ACCOUNT_KEY, effectiveAccountId);
       } else {
         if (!total) return toast.error("Enter an amount");
+        if (isForeign && !effectiveRate) return toast.error("Still fetching the exchange rate — try again in a moment");
+        if (!accountAmount) return toast.error("Enter an amount");
         if (!effectiveAccountId) return toast.error("Choose an account");
-        const signed = mode === "expense" ? -total : total;
+        const signed = mode === "expense" ? -accountAmount : accountAmount;
+        const currencyFields = isForeign
+          ? { original_currency: currency, original_amount: total, fx_rate: effectiveRate, base_amount: accountAmount }
+          : { original_currency: null, original_amount: null, fx_rate: null, base_amount: accountAmount };
         setSaving(true);
         if (editing) {
           await updateTx.mutateAsync({
             id: editing.id,
-            patch: { account_id: effectiveAccountId, date, amount: signed, type: mode, category_id: categoryId, payee: payee || undefined, note: note || undefined, tags },
+            patch: { account_id: effectiveAccountId, date, amount: signed, type: mode, category_id: categoryId, payee: payee || undefined, note: note || undefined, tags, receipt_id: receiptId, ...currencyFields },
           });
         } else {
           await createTx.mutateAsync({
@@ -172,7 +230,9 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
             type: mode,
             category_id: categoryId,
             payee: payee || undefined,
+            receipt_id: receiptId,
             note: note || undefined,
+            ...currencyFields,
             tags,
           });
           localStorage.setItem(LAST_ACCOUNT_KEY, effectiveAccountId);
@@ -214,11 +274,29 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
 
       {/* Amount */}
       <div className="rounded-2xl border p-4 text-center" style={{ borderColor: "var(--border)" }}>
+        {mode !== "transfer" && !splitMode && (
+          <select
+            className="select mx-auto mb-2 w-auto !min-h-0 !py-1 text-xs font-semibold"
+            value={currency}
+            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+          >
+            {COMMON_CURRENCIES.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        )}
         <p className={`money text-4xl font-bold ${mode === "expense" ? "text-expense" : mode === "income" ? "text-income" : "text-text"}`}>
           {amount ? amount : "0"}
         </p>
-        {total !== null && amount.includes("+") && (
+        {total !== null && amount.includes("+") && !isForeign && (
           <p className="money mt-1 text-sm text-text-muted">= {formatMoney(total)}</p>
+        )}
+        {isForeign && (
+          <p className="money mt-1 text-sm text-text-muted">
+            {fxLoading ? "Fetching rate…" : accountAmount !== null ? `≈ ${formatMoney(accountAmount)}` : "Enter a rate below"}
+          </p>
         )}
         <div className="mt-3 grid grid-cols-3 gap-2">
           {KEYS.map((k) => (
@@ -233,6 +311,22 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
           ))}
         </div>
       </div>
+
+      {isForeign && (
+        <div className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: "var(--border)" }}>
+          <div className="flex-1">
+            <label className="label">Rate (₹ per {currency})</label>
+            <input
+              className="input money"
+              type="number"
+              step="0.0001"
+              placeholder={fetchedRate ? fetchedRate.toFixed(4) : "…"}
+              value={fxRateOverride}
+              onChange={(e) => setFxRateOverride(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Transfer accounts, or single account + category */}
       {mode === "transfer" ? (
@@ -377,9 +471,34 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
       <input className="input" placeholder="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} />
       <input className="input" placeholder="Tags, comma separated (optional)" value={tagsInput} onChange={(e) => setTagsInput(e.target.value)} />
 
-      <button type="button" className="btn-outline w-full" disabled title="Receipt scanning arrives in Phase 3">
-        <Camera className="h-5 w-5" /> Scan receipt (coming soon)
-      </button>
+      {mode !== "transfer" && !splitMode && (
+        <>
+          <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onReceiptSelected} />
+          {receiptId ? (
+            <div className="flex items-center gap-2 rounded-xl border p-3 text-sm" style={{ borderColor: "var(--border)" }}>
+              <Paperclip className="h-4 w-4 shrink-0 text-brand-400" />
+              <span className="flex-1">Receipt attached</span>
+              {receiptUrl && (
+                <a href={receiptUrl} target="_blank" rel="noreferrer" className="font-semibold text-brand-400">
+                  View
+                </a>
+              )}
+              <button type="button" className="text-text-muted" onClick={() => setReceiptId(null)} aria-label="Remove receipt">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn-outline w-full"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploadReceipt.isPending}
+            >
+              <Camera className="h-5 w-5" /> {uploadReceipt.isPending ? "Scanning…" : "Scan receipt"}
+            </button>
+          )}
+        </>
+      )}
 
       <div className="flex gap-2 pt-1">
         <button type="button" className="btn-primary flex-1" onClick={() => submit(false)} disabled={saving}>
