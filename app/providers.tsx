@@ -9,6 +9,7 @@ import { Toaster } from "sonner";
 import { QuickAddProvider } from "@/components/QuickAddProvider";
 import { QuickAddSheet } from "@/components/QuickAddSheet";
 import { RecurringMaterializer } from "@/components/RecurringMaterializer";
+import { SnapshotWriter } from "@/components/SnapshotWriter";
 
 const WEEK = 1000 * 60 * 60 * 24 * 7;
 
@@ -71,6 +72,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         {children}
         <QuickAddSheet />
         <RecurringMaterializer />
+        <SnapshotWriter />
       </QuickAddProvider>
       <Toaster richColors position="top-center" toastOptions={{ duration: 2500 }} />
     </PersistQueryClientProvider>

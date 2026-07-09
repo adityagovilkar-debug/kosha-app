@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Modal } from "./Modal";
 import { useAccounts } from "@/lib/kosha/accounts";
 import { useCategories, groupCategories } from "@/lib/kosha/categories";
+import { useHoldings } from "@/lib/kosha/holdings";
 import { useCreateRecurringRule, useUpdateRecurringRule } from "@/lib/kosha/recurring";
 import { rupeesToMinor, minorToRupees } from "@/lib/money";
 import { paletteColor } from "@/lib/palette";
@@ -14,6 +15,7 @@ const TYPE_OPTIONS: { value: RecurringType; label: string }[] = [
   { value: "expense", label: "Expense" },
   { value: "income", label: "Income" },
   { value: "transfer", label: "Transfer" },
+  { value: "investment_buy", label: "SIP" },
 ];
 
 const FREQUENCY_OPTIONS: { value: Frequency; label: string }[] = [
@@ -34,6 +36,7 @@ export function RecurringRuleFormDialog({ open, onClose, editing }: Props) {
   const isEdit = !!editing;
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
+  const { data: holdings } = useHoldings();
   const create = useCreateRecurringRule();
   const update = useUpdateRecurringRule();
 
@@ -42,6 +45,7 @@ export function RecurringRuleFormDialog({ open, onClose, editing }: Props) {
   const [accountId, setAccountId] = useState(editing?.account_id ?? "");
   const [toAccountId, setToAccountId] = useState(editing?.to_account_id ?? "");
   const [categoryId, setCategoryId] = useState<string | null>(editing?.category_id ?? null);
+  const [holdingId, setHoldingId] = useState<string | null>(editing?.holding_id ?? null);
   const [payee, setPayee] = useState(editing?.payee ?? "");
   const [amount, setAmount] = useState(editing ? String(minorToRupees(editing.amount)) : "");
   const [amountMode, setAmountMode] = useState<AmountMode>(editing?.amount_mode ?? "fixed");
@@ -58,10 +62,15 @@ export function RecurringRuleFormDialog({ open, onClose, editing }: Props) {
     .filter((g) => g.kind === kindForType)
     .flatMap((g) => g.children);
 
+  // For a SIP the owning account is the chosen holding's investment account.
+  const selectedHolding = holdings?.find((h) => h.id === holdingId);
+  const effectiveAccountId = type === "investment_buy" ? selectedHolding?.account_id ?? "" : accountId;
+
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return toast.error("Give it a name");
-    if (!accountId) return toast.error("Choose an account");
+    if (type === "investment_buy" && !holdingId) return toast.error("Choose a holding for the SIP");
+    if (!effectiveAccountId) return toast.error("Choose an account");
     if (type === "transfer" && (!toAccountId || toAccountId === accountId)) return toast.error("Pick a different destination account");
     const amountNum = parseFloat(amount);
     if (!amountNum || amountNum <= 0) return toast.error("Enter an amount");
@@ -70,11 +79,12 @@ export function RecurringRuleFormDialog({ open, onClose, editing }: Props) {
     try {
       const payload = {
         name: name.trim(),
-        account_id: accountId,
+        account_id: effectiveAccountId,
         to_account_id: type === "transfer" ? toAccountId : null,
         type,
-        category_id: type === "transfer" ? null : categoryId,
-        payee: type === "transfer" ? null : payee || null,
+        category_id: type === "transfer" || type === "investment_buy" ? null : categoryId,
+        holding_id: type === "investment_buy" ? holdingId : null,
+        payee: type === "transfer" || type === "investment_buy" ? null : payee || null,
         amount: rupeesToMinor(amountNum),
         note: note || null,
         frequency,
@@ -109,7 +119,7 @@ export function RecurringRuleFormDialog({ open, onClose, editing }: Props) {
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Netflix" autoFocus />
         </div>
 
-        <div className="grid grid-cols-3 gap-1 rounded-xl bg-surface-2 p-1">
+        <div className="grid grid-cols-4 gap-1 rounded-xl bg-surface-2 p-1">
           {TYPE_OPTIONS.map((t) => (
             <button
               key={t.value}
@@ -122,7 +132,23 @@ export function RecurringRuleFormDialog({ open, onClose, editing }: Props) {
           ))}
         </div>
 
-        {type === "transfer" ? (
+        {type === "investment_buy" ? (
+          <div>
+            <label className="label">Holding</label>
+            {(holdings?.length ?? 0) === 0 ? (
+              <p className="text-sm text-text-muted">No holdings yet — add one under Wealth first.</p>
+            ) : (
+              <select className="select" value={holdingId ?? ""} onChange={(e) => setHoldingId(e.target.value || null)}>
+                <option value="">Choose holding…</option>
+                {(holdings ?? []).map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        ) : type === "transfer" ? (
           <div className="grid grid-cols-2 gap-2">
             <select className="select" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
               <option value="">From…</option>
@@ -178,7 +204,7 @@ export function RecurringRuleFormDialog({ open, onClose, editing }: Props) {
             <label className="label">Amount</label>
             <input className="input money" type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
           </div>
-          {type !== "transfer" && (
+          {(type === "expense" || type === "income") && (
             <div>
               <label className="label">Amount type</label>
               <select className="select" value={amountMode} onChange={(e) => setAmountMode(e.target.value as AmountMode)}>

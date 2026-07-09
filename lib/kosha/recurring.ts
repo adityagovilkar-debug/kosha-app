@@ -154,13 +154,16 @@ async function materializeDueRules(userId: string) {
         newRows.push({ ...base, account_id: rule.to_account_id, amount: rule.amount });
       } else if (rule.type !== "transfer") {
         const magnitude = rule.amount_mode === "variable" ? (rule.last_confirmed_amount ?? rule.amount) : rule.amount;
+        // Cash out for expenses and SIP buys; cash in for income.
+        const cashOut = rule.type === "expense" || rule.type === "investment_buy";
         newRows.push({
           user_id: userId,
           account_id: rule.account_id,
           date: dueDate,
-          amount: rule.type === "expense" ? -magnitude : magnitude,
+          amount: cashOut ? -magnitude : magnitude,
           type: rule.type,
           category_id: rule.category_id,
+          holding_id: rule.holding_id,
           payee: rule.payee,
           note: rule.note,
           status,
@@ -242,7 +245,8 @@ export function useConfirmRecurring() {
           ),
         );
       } else {
-        const signed = tx.type === "expense" ? -confirmedMagnitude : confirmedMagnitude;
+        const cashOut = tx.type === "expense" || tx.type === "investment_buy";
+        const signed = cashOut ? -confirmedMagnitude : confirmedMagnitude;
         const { error } = await sb().from("kosha_transactions").update({ status: "cleared", amount: signed }).eq("id", tx.id);
         if (error) throw error;
       }

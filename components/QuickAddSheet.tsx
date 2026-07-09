@@ -87,6 +87,14 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
   const [splits, setSplits] = useState<SplitRow[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Salary-with-TDS (Phase 4, KOSHA-PLAN.md §6.1): income mode can capture
+  // gross + TDS, storing the NET as the transaction amount (what actually
+  // lands in the account) plus gross_amount/tds_amount for the taxes
+  // report. No separate tax_deducted row — that would double-count cash.
+  const [grossMode, setGrossMode] = useState(() => editing?.gross_amount != null);
+  const [grossInput, setGrossInput] = useState(() => (editing?.gross_amount != null ? String(minorToRupees(editing.gross_amount)) : ""));
+  const [tdsInput, setTdsInput] = useState(() => (editing?.tds_amount != null ? String(minorToRupees(editing.tds_amount)) : ""));
+
   const [receiptId, setReceiptId] = useState<string | null>(editing?.receipt_id ?? null);
   const uploadReceipt = useUploadReceipt();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -118,10 +126,17 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
     return groups.filter((g) => g.kind === kindForMode).flatMap((g) => g.children);
   }, [categories, kindForMode]);
 
+  // Gross/TDS is only offered for plain (non-foreign, non-split) income.
+  const grossActive = mode === "income" && grossMode && !isForeign && !splitMode;
+  const grossMinor = grossInput ? parseAmountInput(grossInput) : null;
+  const tdsMinor = tdsInput ? parseAmountInput(tdsInput) : 0;
+  const netFromGross = grossMinor !== null ? grossMinor - (tdsMinor ?? 0) : null;
+
   // `total` is in whichever `currency` is selected; `accountAmount` is
   // always the account-currency (INR) value actually stored on the
-  // transaction. They're the same number unless isForeign is true.
-  const total = parseAmountInput(amount);
+  // transaction. They're the same number unless isForeign is true. When
+  // gross/TDS is active, the net (gross − TDS) is the amount instead.
+  const total = grossActive ? netFromGross : parseAmountInput(amount);
   const accountAmount = isForeign ? (total !== null && effectiveRate ? Math.round(total * effectiveRate) : null) : total;
   const splitTotal = splits.reduce((sum, s) => sum + (parseAmountInput(s.amount) ?? 0), 0);
   const splitsValid = splitMode && splits.length > 0 && total !== null && splitTotal === total && splits.every((s) => s.categoryId);
@@ -177,6 +192,9 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
     setTagsInput("");
     setSplitMode(false);
     setSplits([]);
+    setReceiptId(null);
+    setGrossInput("");
+    setTdsInput("");
     // keep mode, account, category, date — fastest path for repeated entries
   }
 
@@ -216,11 +234,14 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
         const currencyFields = isForeign
           ? { original_currency: currency, original_amount: total, fx_rate: effectiveRate, base_amount: accountAmount }
           : { original_currency: null, original_amount: null, fx_rate: null, base_amount: accountAmount };
+        const taxFields = grossActive
+          ? { gross_amount: grossMinor, tds_amount: tdsMinor ?? 0 }
+          : { gross_amount: null, tds_amount: null };
         setSaving(true);
         if (editing) {
           await updateTx.mutateAsync({
             id: editing.id,
-            patch: { account_id: effectiveAccountId, date, amount: signed, type: mode, category_id: categoryId, payee: payee || undefined, note: note || undefined, tags, receipt_id: receiptId, ...currencyFields },
+            patch: { account_id: effectiveAccountId, date, amount: signed, type: mode, category_id: categoryId, payee: payee || undefined, note: note || undefined, tags, receipt_id: receiptId, ...currencyFields, ...taxFields },
           });
         } else {
           await createTx.mutateAsync({
@@ -233,6 +254,7 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
             receipt_id: receiptId,
             note: note || undefined,
             ...currencyFields,
+            ...taxFields,
             tags,
           });
           localStorage.setItem(LAST_ACCOUNT_KEY, effectiveAccountId);
@@ -272,45 +294,71 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
         ))}
       </div>
 
+      {/* Salary-with-TDS toggle (income only) */}
+      {mode === "income" && !splitMode && (
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input type="checkbox" checked={grossMode} onChange={(e) => setGrossMode(e.target.checked)} className="h-4 w-4" />
+          Break down gross salary &amp; TDS
+        </label>
+      )}
+
       {/* Amount */}
-      <div className="rounded-2xl border p-4 text-center" style={{ borderColor: "var(--border)" }}>
-        {mode !== "transfer" && !splitMode && (
-          <select
-            className="select mx-auto mb-2 w-auto !min-h-0 !py-1 text-xs font-semibold"
-            value={currency}
-            onChange={(e) => setCurrency(e.target.value.toUpperCase())}
-          >
-            {COMMON_CURRENCIES.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        )}
-        <p className={`money text-4xl font-bold ${mode === "expense" ? "text-expense" : mode === "income" ? "text-income" : "text-text"}`}>
-          {amount ? amount : "0"}
-        </p>
-        {total !== null && amount.includes("+") && !isForeign && (
-          <p className="money mt-1 text-sm text-text-muted">= {formatMoney(total)}</p>
-        )}
-        {isForeign && (
-          <p className="money mt-1 text-sm text-text-muted">
-            {fxLoading ? "Fetching rate…" : accountAmount !== null ? `≈ ${formatMoney(accountAmount)}` : "Enter a rate below"}
+      {grossActive ? (
+        <div className="space-y-3 rounded-2xl border p-4" style={{ borderColor: "var(--border)" }}>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Gross (₹)</label>
+              <input className="input money" type="number" step="0.01" value={grossInput} onChange={(e) => setGrossInput(e.target.value)} placeholder="0" autoFocus />
+            </div>
+            <div>
+              <label className="label">TDS (₹)</label>
+              <input className="input money" type="number" step="0.01" value={tdsInput} onChange={(e) => setTdsInput(e.target.value)} placeholder="0" />
+            </div>
+          </div>
+          <p className="money text-center text-sm text-text-muted">
+            Net credited: <span className="font-bold text-income">{netFromGross !== null ? formatMoney(netFromGross) : "—"}</span>
           </p>
-        )}
-        <div className="mt-3 grid grid-cols-3 gap-2">
-          {KEYS.map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => pressKey(k)}
-              className="btn-outline !min-h-[40px] text-lg font-semibold"
-            >
-              {k === "⌫" ? <Delete className="mx-auto h-5 w-5" /> : k}
-            </button>
-          ))}
         </div>
-      </div>
+      ) : (
+        <div className="rounded-2xl border p-4 text-center" style={{ borderColor: "var(--border)" }}>
+          {mode !== "transfer" && !splitMode && (
+            <select
+              className="select mx-auto mb-2 w-auto !min-h-0 !py-1 text-xs font-semibold"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value.toUpperCase())}
+            >
+              {COMMON_CURRENCIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          )}
+          <p className={`money text-4xl font-bold ${mode === "expense" ? "text-expense" : mode === "income" ? "text-income" : "text-text"}`}>
+            {amount ? amount : "0"}
+          </p>
+          {total !== null && amount.includes("+") && !isForeign && (
+            <p className="money mt-1 text-sm text-text-muted">= {formatMoney(total)}</p>
+          )}
+          {isForeign && (
+            <p className="money mt-1 text-sm text-text-muted">
+              {fxLoading ? "Fetching rate…" : accountAmount !== null ? `≈ ${formatMoney(accountAmount)}` : "Enter a rate below"}
+            </p>
+          )}
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {KEYS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => pressKey(k)}
+                className="btn-outline !min-h-[40px] text-lg font-semibold"
+              >
+                {k === "⌫" ? <Delete className="mx-auto h-5 w-5" /> : k}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isForeign && (
         <div className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: "var(--border)" }}>
