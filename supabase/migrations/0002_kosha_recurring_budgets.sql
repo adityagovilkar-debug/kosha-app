@@ -55,10 +55,19 @@ create table if not exists kosha_recurring_rules (
 create index if not exists idx_kosha_recurring_user      on kosha_recurring_rules(user_id);
 create index if not exists idx_kosha_recurring_next_due  on kosha_recurring_rules(user_id, next_due) where not archived;
 
--- now that kosha_recurring_rules exists, wire up the FK + lookup index
-alter table kosha_transactions
-  add constraint kosha_transactions_recurring_rule_fk
-  foreign key (recurring_rule_id) references kosha_recurring_rules on delete set null;
+-- now that kosha_recurring_rules exists, wire up the FK + lookup index.
+-- Postgres has no `ADD CONSTRAINT IF NOT EXISTS`, so this is guarded
+-- manually to keep the migration safely re-runnable.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'kosha_transactions_recurring_rule_fk'
+  ) then
+    alter table kosha_transactions
+      add constraint kosha_transactions_recurring_rule_fk
+      foreign key (recurring_rule_id) references kosha_recurring_rules on delete set null;
+  end if;
+end $$;
 
 create index if not exists idx_kosha_tx_recurring on kosha_transactions(recurring_rule_id, date);
 
