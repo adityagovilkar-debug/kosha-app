@@ -46,14 +46,21 @@ export function useTransactions(filters: TransactionFilters = {}) {
   });
 }
 
-/** IDs of transactions that have split children — used to render the expand chevron. */
+/**
+ * IDs of transactions that have split children — used to render the expand
+ * chevron. Returns a plain Record rather than a Set: the persisted query
+ * cache round-trips through JSON (IndexedDB), and JSON.stringify(Set)
+ * collapses to "{}", so a Set silently turns unusable after a reload.
+ */
 export function useSplitParentIds() {
   return useQuery({
     queryKey: ["kosha_transactions", "splitParentIds"],
-    queryFn: async (): Promise<Set<string>> => {
+    queryFn: async (): Promise<Record<string, true>> => {
       const { data, error } = await sb().from("kosha_transactions").select("parent_id").not("parent_id", "is", null);
       if (error) throw error;
-      return new Set((data ?? []).map((r) => r.parent_id as string));
+      const ids: Record<string, true> = {};
+      for (const row of data ?? []) ids[row.parent_id as string] = true;
+      return ids;
     },
   });
 }

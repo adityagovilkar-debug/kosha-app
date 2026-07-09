@@ -144,7 +144,7 @@ export default function DashboardPage() {
                   account={accountsById.get(tx.account_id)}
                   category={tx.category_id ? categoriesById.get(tx.category_id) : undefined}
                   categoriesById={categoriesById}
-                  isSplitParent={splitParentIds?.has(tx.id) ?? false}
+                  isSplitParent={splitParentIds?.[tx.id] ?? false}
                   onEdit={(t) => openQuickAdd(t)}
                 />
               ))}
