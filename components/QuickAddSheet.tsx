@@ -15,6 +15,7 @@ import {
 } from "@/lib/kosha/transactions";
 import { errMessage } from "@/lib/errors";
 import { useRecentPayees } from "@/lib/kosha/payees";
+import { useCategoryRules, matchRule } from "@/lib/kosha/rules";
 import { COMMON_CURRENCIES, useFxRate } from "@/lib/kosha/fx";
 import { useTripMode } from "@/lib/kosha/settings";
 import { useUploadReceipt, useReceipt, useReceiptImageUrl } from "@/lib/kosha/receipts";
@@ -78,8 +79,18 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
   });
   const [toAccountId, setToAccountId] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(() => editing?.category_id ?? null);
+  // Once the user picks a category by hand, auto-categorization backs off.
+  const [categoryTouched, setCategoryTouched] = useState(!!editing);
   const [date, setDate] = useState(() => editing?.date ?? today());
   const [payee, setPayee] = useState(() => editing?.payee ?? "");
+  const { data: categoryRules } = useCategoryRules();
+
+  function onPayeeChange(value: string) {
+    setPayee(value);
+    if (categoryTouched || !categoryRules?.length) return;
+    const matched = matchRule(categoryRules, value);
+    if (matched) setCategoryId(matched);
+  }
   const [note, setNote] = useState(() => editing?.note ?? "");
   const trip = useTripMode();
   const [tagsInput, setTagsInput] = useState(() => {
@@ -167,7 +178,7 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
       setReceiptId(result.receiptId);
       const ex = result.extracted;
       if (ex) {
-        if (ex.merchant) setPayee(ex.merchant);
+        if (ex.merchant) onPayeeChange(ex.merchant); // also fires the auto-categorization rules
         if (ex.date) setDate(ex.date);
         if (ex.total != null) setAmount(String(minorToRupees(ex.total)));
         if (ex.currency && ex.currency !== "INR") setCurrency(ex.currency);
@@ -434,7 +445,10 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
                   <button
                     type="button"
                     key={c.id}
-                    onClick={() => setCategoryId(c.id)}
+                    onClick={() => {
+                      setCategoryId(c.id);
+                      setCategoryTouched(true);
+                    }}
                     className={`flex flex-col items-center gap-1 rounded-xl border py-2 text-xs font-medium transition ${
                       categoryId === c.id ? "border-brand-500 bg-brand-500/10" : "hover:bg-surface-2"
                     }`}
@@ -527,7 +541,7 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
             list="kosha-payees"
             placeholder="Payee (optional)"
             value={payee}
-            onChange={(e) => setPayee(e.target.value)}
+            onChange={(e) => onPayeeChange(e.target.value)}
           />
           <datalist id="kosha-payees">
             {(recentPayees ?? []).map((p) => (

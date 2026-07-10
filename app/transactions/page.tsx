@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { format, parseISO, isToday, isYesterday } from "date-fns";
 import { toast } from "sonner";
+import { X } from "lucide-react";
 import { useAccounts } from "@/lib/kosha/accounts";
-import { useCategories } from "@/lib/kosha/categories";
+import { useCategories, groupCategories } from "@/lib/kosha/categories";
 import { useTransactions, useDeleteTransaction, useSplitParentIds } from "@/lib/kosha/transactions";
 import { useQuickAdd } from "@/components/QuickAddProvider";
 import { TransactionFiltersBar } from "@/components/TransactionFilters";
@@ -21,11 +23,45 @@ function dayLabel(dateStr: string) {
   return format(d, "EEEE, MMM d");
 }
 
+// useSearchParams must sit under a Suspense boundary in the App Router.
 export default function TransactionsPage() {
-  const [filters, setFilters] = useState<TransactionFilters>({});
+  return (
+    <Suspense fallback={<div className="mx-auto max-w-2xl px-4 py-6 text-text-muted sm:px-6 sm:py-10">Loading…</div>}>
+      <TransactionsContent />
+    </Suspense>
+  );
+}
+
+function TransactionsContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { data: accounts } = useAccounts();
   const { data: categories } = useCategories();
-  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useTransactions(filters);
+
+  // Chart drill-downs land here with URL params: ?group= (a category
+  // group), ?category=, ?payee=, plus the Insights period as ?from/?to.
+  const groupParam = searchParams.get("group");
+  const [filters, setFilters] = useState<TransactionFilters>(() => ({
+    categoryId: searchParams.get("category") ?? undefined,
+    search: searchParams.get("payee") ?? undefined,
+    dateFrom: searchParams.get("from") ?? undefined,
+    dateTo: searchParams.get("to") ?? undefined,
+  }));
+
+  // A group drill-down means "any of the group's child categories".
+  const drillGroup = useMemo(() => {
+    if (!groupParam || !categories) return null;
+    return groupCategories(categories).find((g) => g.id === groupParam) ?? null;
+  }, [groupParam, categories]);
+
+  const effectiveFilters = useMemo<TransactionFilters>(() => {
+    if (!groupParam) return filters;
+    // While categories are still loading, filter on the group id itself —
+    // it never matches a transaction, so stale unfiltered rows don't flash.
+    return { ...filters, categoryIds: drillGroup ? drillGroup.children.map((c) => c.id) : [groupParam] };
+  }, [filters, drillGroup, groupParam]);
+
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useTransactions(effectiveFilters);
   const { data: splitParentIds } = useSplitParentIds();
   const deleteTx = useDeleteTransaction();
   const { open: openQuickAdd } = useQuickAdd();
@@ -61,6 +97,21 @@ export default function TransactionsPage() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="mb-6 text-2xl font-bold tracking-tight">Transactions</h1>
+
+      {drillGroup && (
+        <div className="mb-3 flex items-center gap-2">
+          <span className="chip bg-brand-500/10 text-brand-400 ring-brand-500/30">
+            {drillGroup.emoji} {drillGroup.name}
+            <button
+              onClick={() => router.replace("/transactions")}
+              className="ml-0.5 rounded-full p-0.5 hover:bg-surface-2"
+              aria-label="Clear group filter"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </span>
+        </div>
+      )}
 
       <TransactionFiltersBar filters={filters} onChange={setFilters} accounts={accounts ?? []} categories={categories ?? []} />
 

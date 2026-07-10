@@ -5,6 +5,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Upload, ArrowLeft } from "lucide-react";
 import { useAccounts } from "@/lib/kosha/accounts";
+import { useCategories } from "@/lib/kosha/categories";
+import { useCategoryRules, matchRule } from "@/lib/kosha/rules";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { parseCsv, parseDateCell, parseAmountCell, isNegativeCell, type DateFormat } from "@/lib/kosha/csv";
 import { formatMoneySigned } from "@/lib/money";
@@ -30,6 +32,7 @@ interface ParsedRow {
   amount: number; // signed minor units (+in / -out)
   payee: string;
   note: string;
+  category_id: string | null; // filled by auto-categorization rules
   dupe: boolean;
   include: boolean;
 }
@@ -66,8 +69,12 @@ const DEFAULT_MAPPING: Mapping = {
 
 export default function ImportPage() {
   const { data: accounts } = useAccounts();
+  const { data: categories } = useCategories();
+  const { data: categoryRules } = useCategoryRules();
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const categoriesById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
 
   const [stage, setStage] = useState<Stage>("upload");
   const [headers, setHeaders] = useState<string[]>([]);
@@ -117,11 +124,16 @@ export default function ImportPage() {
       }
       if (amount === null || amount === 0) continue;
 
+      const payee = (mapping.payeeCol >= 0 ? r[mapping.payeeCol] : "")?.trim() ?? "";
       out.push({
         date,
         amount,
-        payee: (mapping.payeeCol >= 0 ? r[mapping.payeeCol] : "")?.trim() ?? "",
+        payee,
         note: (mapping.noteCol >= 0 ? r[mapping.noteCol] : "")?.trim() ?? "",
+        // Auto-categorization only applies to spends — income categories
+        // are a different kind and a "Swiggy → Dining" rule shouldn't
+        // label a refund from Swiggy as Dining income.
+        category_id: amount < 0 && payee ? matchRule(categoryRules ?? [], payee) : null,
         dupe: false,
         include: true,
       });
@@ -171,6 +183,7 @@ export default function ImportPage() {
         type: r.amount < 0 ? "expense" : "income",
         payee: r.payee || null,
         note: r.note || null,
+        category_id: r.category_id,
         status: "cleared",
         tags: [],
       }));
@@ -346,25 +359,32 @@ export default function ImportPage() {
                   <th className="p-2"></th>
                   <th className="p-2 text-left font-semibold">Date</th>
                   <th className="p-2 text-left font-semibold">Payee</th>
+                  <th className="p-2 text-left font-semibold">Category</th>
                   <th className="p-2 text-right font-semibold">Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {parsed.map((r, i) => (
-                  <tr key={i} className={`border-t ${r.dupe ? "opacity-50" : ""}`} style={{ borderColor: "var(--border)" }}>
-                    <td className="p-2">
-                      <input
-                        type="checkbox"
-                        checked={r.include}
-                        onChange={(e) => setParsed((prev) => prev.map((x, j) => (j === i ? { ...x, include: e.target.checked } : x)))}
-                        className="h-4 w-4"
-                      />
-                    </td>
-                    <td className="p-2">{r.date}</td>
-                    <td className="max-w-[160px] truncate p-2">{r.payee || <span className="text-text-muted">—</span>}</td>
-                    <td className={`money p-2 text-right font-semibold ${r.amount < 0 ? "text-expense" : "text-income"}`}>{formatMoneySigned(r.amount)}</td>
-                  </tr>
-                ))}
+                {parsed.map((r, i) => {
+                  const cat = r.category_id ? categoriesById.get(r.category_id) : null;
+                  return (
+                    <tr key={i} className={`border-t ${r.dupe ? "opacity-50" : ""}`} style={{ borderColor: "var(--border)" }}>
+                      <td className="p-2">
+                        <input
+                          type="checkbox"
+                          checked={r.include}
+                          onChange={(e) => setParsed((prev) => prev.map((x, j) => (j === i ? { ...x, include: e.target.checked } : x)))}
+                          className="h-4 w-4"
+                        />
+                      </td>
+                      <td className="p-2">{r.date}</td>
+                      <td className="max-w-[140px] truncate p-2">{r.payee || <span className="text-text-muted">—</span>}</td>
+                      <td className="max-w-[110px] truncate p-2">
+                        {cat ? `${cat.emoji} ${cat.name}` : <span className="text-text-muted">—</span>}
+                      </td>
+                      <td className={`money p-2 text-right font-semibold ${r.amount < 0 ? "text-expense" : "text-income"}`}>{formatMoneySigned(r.amount)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

@@ -1,17 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Plus, TrendingUp } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Plus, TrendingUp, RefreshCw } from "lucide-react";
 import { useAccounts, useAccountBalances } from "@/lib/kosha/accounts";
 import { useHoldings, useLatestPrices, useAllInvestmentTransactions, summarizeHolding } from "@/lib/kosha/holdings";
+import { useRefreshNavs, navRefreshDueToday } from "@/lib/kosha/nav";
 import { useNetWorthHistory, computeNetWorth } from "@/lib/kosha/netWorth";
 import { NetWorthLineChart } from "@/components/NetWorthLineChart";
 import { AllocationBars } from "@/components/AllocationBars";
 import { HoldingFormDialog } from "@/components/HoldingFormDialog";
 import { HoldingDetailDialog } from "@/components/HoldingDetailDialog";
 import { LoanDetailDialog } from "@/components/LoanDetailDialog";
+import { GoalsSection } from "@/components/GoalsSection";
 import { formatMoney, formatMoneySigned } from "@/lib/money";
 import { paletteColor } from "@/lib/palette";
+import { errMessage } from "@/lib/errors";
 import type { Account, Holding } from "@/lib/kosha/types";
 
 export default function WealthPage() {
@@ -25,6 +29,28 @@ export default function WealthPage() {
   const [holdingFormOpen, setHoldingFormOpen] = useState(false);
   const [detailHolding, setDetailHolding] = useState<Holding | null>(null);
   const [detailLoan, setDetailLoan] = useState<Account | null>(null);
+
+  const refreshNavs = useRefreshNavs();
+  const hasLinkedFunds = (holdings ?? []).some((h) => h.amfi_code);
+  const autoNavRan = useRef(false);
+
+  // Auto-refresh linked fund NAVs once per calendar day, silently.
+  useEffect(() => {
+    if (autoNavRan.current || !holdings || !hasLinkedFunds || !navRefreshDueToday()) return;
+    autoNavRan.current = true;
+    refreshNavs.mutate(holdings);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdings, hasLinkedFunds]);
+
+  async function onManualNavRefresh() {
+    if (!holdings) return;
+    try {
+      const updated = await refreshNavs.mutateAsync(holdings);
+      toast.success(updated > 0 ? `Updated ${updated} NAV${updated === 1 ? "" : "s"}` : "No AMFI-linked funds to update");
+    } catch (err) {
+      toast.error(errMessage(err, "NAV refresh failed"));
+    }
+  }
 
   const summaries = useMemo(() => {
     if (!holdings || !investmentTxns) return [];
@@ -77,13 +103,28 @@ export default function WealthPage() {
         <NetWorthLineChart snapshots={snapshots ?? []} />
       </div>
 
+      {/* Savings goals */}
+      <GoalsSection />
+
       {/* Portfolio */}
       <div className="mb-6">
-        <div className="mb-2 flex items-center justify-between px-1">
+        <div className="mb-2 flex items-center justify-between gap-2 px-1">
           <h2 className="text-lg font-bold">Portfolio</h2>
-          <button className="btn-primary !min-h-0 !py-1.5 !px-3 text-sm" onClick={() => setHoldingFormOpen(true)}>
-            <Plus className="h-4 w-4" /> Holding
-          </button>
+          <div className="flex gap-2">
+            {hasLinkedFunds && (
+              <button
+                className="btn-outline !min-h-0 !py-1.5 !px-3 text-sm"
+                onClick={onManualNavRefresh}
+                disabled={refreshNavs.isPending}
+                aria-label="Refresh NAVs"
+              >
+                <RefreshCw className={`h-4 w-4 ${refreshNavs.isPending ? "animate-spin" : ""}`} /> NAVs
+              </button>
+            )}
+            <button className="btn-primary !min-h-0 !py-1.5 !px-3 text-sm" onClick={() => setHoldingFormOpen(true)}>
+              <Plus className="h-4 w-4" /> Holding
+            </button>
+          </div>
         </div>
 
         {summaries.length === 0 ? (

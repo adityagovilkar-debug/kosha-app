@@ -132,6 +132,8 @@ export type NewTransaction = Pick<Transaction, "account_id" | "date" | "amount" 
 export interface TransactionFilters {
   accountId?: string;
   categoryId?: string;
+  /** Match any of these categories — used by group drill-down from charts. */
+  categoryIds?: string[];
   type?: TransactionType;
   tag?: string;
   search?: string;
@@ -232,12 +234,13 @@ export interface Holding {
   name: string;
   asset_class: AssetClass;
   units_tracked: boolean;
+  amfi_code: string | null; // AMFI scheme code for NAV auto-fetch (MFs only)
   archived: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export type NewHolding = Pick<Holding, "account_id" | "name" | "asset_class"> & Partial<Pick<Holding, "units_tracked">>;
+export type NewHolding = Pick<Holding, "account_id" | "name" | "asset_class"> & Partial<Pick<Holding, "units_tracked" | "amfi_code">>;
 
 export interface HoldingPrice {
   holding_id: string;
@@ -254,3 +257,37 @@ export interface NetWorthSnapshot {
   breakdown: Record<string, number> | null; // account_id -> balance, minor units
   created_at: string;
 }
+
+// ---------------------------------------------------------------------
+// Feature pack: auto-categorization rules + savings goals
+// ---------------------------------------------------------------------
+
+export interface CategoryRule {
+  id: string;
+  user_id: string;
+  pattern: string; // case-insensitive substring matched against payee
+  category_id: string;
+  created_at: string;
+}
+
+export type NewCategoryRule = Pick<CategoryRule, "pattern" | "category_id">;
+
+export type GoalSource = "account" | "tag";
+
+export interface Goal {
+  id: string;
+  user_id: string;
+  name: string;
+  emoji: string;
+  target_amount: number; // minor units
+  source: GoalSource;
+  account_id: string | null; // when source === "account"
+  tag: string | null; // when source === "tag"
+  target_date: string | null;
+  archived: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NewGoal = Pick<Goal, "name" | "target_amount" | "source"> &
+  Partial<Pick<Goal, "emoji" | "account_id" | "tag" | "target_date">>;

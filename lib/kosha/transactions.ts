@@ -41,6 +41,7 @@ export function useTransactions(filters: TransactionFilters = {}) {
         .is("parent_id", null);
       if (filters.accountId) q = q.eq("account_id", filters.accountId);
       if (filters.categoryId) q = q.eq("category_id", filters.categoryId);
+      if (filters.categoryIds?.length) q = q.in("category_id", filters.categoryIds);
       if (filters.type) q = q.eq("type", filters.type);
       if (filters.tag) q = q.contains("tags", [filters.tag]);
       if (filters.dateFrom) q = q.gte("date", filters.dateFrom);

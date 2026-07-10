@@ -15,6 +15,7 @@ import { TransactionRow } from "@/components/TransactionRow";
 import { AnimatedMoney } from "@/components/AnimatedNumber";
 import { Sparkline } from "@/components/Sparkline";
 import { BackupNudge } from "@/components/BackupNudge";
+import { AnomalyFlags } from "@/components/AnomalyFlags";
 import { formatMoney, formatCompactINR } from "@/lib/money";
 
 function today() {
@@ -111,6 +112,7 @@ export default function DashboardPage() {
       ) : (
         <>
           <BackupNudge />
+          <AnomalyFlags />
 
           {/* Hero: safe to spend */}
           <div className="card rise mb-4 overflow-hidden p-6">

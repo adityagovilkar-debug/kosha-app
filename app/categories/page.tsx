@@ -5,6 +5,7 @@ import { Plus, Pencil, Archive } from "lucide-react";
 import { useCategories, groupCategories } from "@/lib/kosha/categories";
 import { CategoryFormDialog } from "@/components/CategoryFormDialog";
 import { CategoryArchiveDialog } from "@/components/CategoryArchiveDialog";
+import { CategoryRulesCard } from "@/components/CategoryRulesCard";
 import { paletteColor } from "@/lib/palette";
 import type { Category } from "@/lib/kosha/types";
 
@@ -110,6 +111,8 @@ export default function CategoriesPage() {
           </div>
         ))}
       </div>
+
+      <CategoryRulesCard />
 
       <CategoryFormDialog
         open={formOpen}

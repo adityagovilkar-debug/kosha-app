@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { Modal } from "./Modal";
 import { useAccounts } from "@/lib/kosha/accounts";
 import { useCreateHolding, useUpdateHolding } from "@/lib/kosha/holdings";
+import { searchAmfiSchemes, type AmfiMatch } from "@/lib/kosha/nav";
 import type { AssetClass, Holding } from "@/lib/kosha/types";
 import { errMessage } from "@/lib/errors";
 
@@ -25,6 +26,8 @@ interface Props {
   editing?: Holding | null;
 }
 
+const isMutualFund = (c: AssetClass) => c === "equity_mf" || c === "debt_mf";
+
 export function HoldingFormDialog({ open, onClose, editing }: Props) {
   const isEdit = !!editing;
   const { data: accounts } = useAccounts();
@@ -36,20 +39,46 @@ export function HoldingFormDialog({ open, onClose, editing }: Props) {
   const [name, setName] = useState(editing?.name ?? "");
   const [assetClass, setAssetClass] = useState<AssetClass>(editing?.asset_class ?? "equity_mf");
   const [accountId, setAccountId] = useState(editing?.account_id ?? investmentAccounts[0]?.id ?? "");
+  const [amfiCode, setAmfiCode] = useState<string | null>(editing?.amfi_code ?? null);
+  const [amfiName, setAmfiName] = useState<string | null>(null);
+  const [schemeQuery, setSchemeQuery] = useState("");
+  const [schemeResults, setSchemeResults] = useState<AmfiMatch[]>([]);
+  const [searching, setSearching] = useState(false);
   const [saving, setSaving] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  function onSchemeQueryChange(value: string) {
+    setSchemeQuery(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (value.trim().length < 3) {
+      setSchemeResults([]);
+      return;
+    }
+    searchTimer.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        setSchemeResults(await searchAmfiSchemes(value.trim()));
+      } catch {
+        setSchemeResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 450);
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) return toast.error("Give the holding a name");
     if (!accountId) return toast.error("Choose an investment account (create one in Accounts first)");
     const unitsTracked = ASSET_CLASSES.find((a) => a.value === assetClass)?.unitsTracked ?? true;
+    const amfi_code = isMutualFund(assetClass) ? amfiCode : null;
     setSaving(true);
     try {
       if (isEdit) {
-        await update.mutateAsync({ id: editing!.id, patch: { name: name.trim(), asset_class: assetClass, account_id: accountId, units_tracked: unitsTracked } });
+        await update.mutateAsync({ id: editing!.id, patch: { name: name.trim(), asset_class: assetClass, account_id: accountId, units_tracked: unitsTracked, amfi_code } });
         toast.success("Holding updated");
       } else {
-        await create.mutateAsync({ name: name.trim(), asset_class: assetClass, account_id: accountId, units_tracked: unitsTracked });
+        await create.mutateAsync({ name: name.trim(), asset_class: assetClass, account_id: accountId, units_tracked: unitsTracked, amfi_code });
         toast.success("Holding added");
       }
       onClose();
@@ -99,6 +128,62 @@ export function HoldingFormDialog({ open, onClose, editing }: Props) {
             </select>
           )}
         </div>
+        {isMutualFund(assetClass) && (
+          <div>
+            <label className="label">Auto-fetch NAV (AMFI)</label>
+            {amfiCode ? (
+              <div className="flex items-center gap-2 rounded-xl border p-3 text-sm" style={{ borderColor: "var(--border)" }}>
+                <span className="min-w-0 flex-1 truncate">
+                  {amfiName ?? `Scheme code ${amfiCode}`}
+                  <span className="block text-xs text-text-muted">Daily NAV updates on the Wealth page</span>
+                </span>
+                <button
+                  type="button"
+                  className="btn-ghost !min-h-0 shrink-0 !py-1 !px-2 text-xs"
+                  onClick={() => {
+                    setAmfiCode(null);
+                    setAmfiName(null);
+                  }}
+                >
+                  Unlink
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  className="input"
+                  placeholder="Search the fund, e.g. UTI Nifty Index Direct Growth"
+                  value={schemeQuery}
+                  onChange={(e) => onSchemeQueryChange(e.target.value)}
+                />
+                {searching && <p className="mt-1 text-xs text-text-muted">Searching…</p>}
+                {schemeResults.length > 0 && (
+                  <div className="mt-1 max-h-44 overflow-auto rounded-xl border" style={{ borderColor: "var(--border)" }}>
+                    {schemeResults.map((s) => (
+                      <button
+                        key={s.code}
+                        type="button"
+                        className="block w-full px-3 py-2 text-left text-xs hover:bg-surface-2"
+                        onClick={() => {
+                          setAmfiCode(s.code);
+                          setAmfiName(s.name);
+                          setSchemeResults([]);
+                          setSchemeQuery("");
+                          if (!name.trim()) setName(s.name);
+                        }}
+                      >
+                        <span className="block truncate font-medium">{s.name}</span>
+                        <span className="text-text-muted">NAV ₹{s.nav} · {s.date}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <p className="mt-1 text-xs text-text-muted">Optional — link the scheme once and prices update themselves.</p>
+              </>
+            )}
+          </div>
+        )}
+
         <button className="btn-primary w-full" disabled={saving || investmentAccounts.length === 0}>
           {saving ? "Saving…" : isEdit ? "Save changes" : "Add holding"}
         </button>

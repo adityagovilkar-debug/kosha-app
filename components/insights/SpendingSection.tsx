@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useCategories } from "@/lib/kosha/categories";
 import {
   usePeriodTransactions,
@@ -24,8 +25,16 @@ export function SpendingSection({ period }: { period: Period }) {
   const { data: categories } = useCategories();
   const { data: txns, isLoading } = usePeriodTransactions(period.from, period.to);
   const { mode, ink } = useChartTheme();
+  const router = useRouter();
 
   const maps = useMemo(() => buildCategoryMaps(categories ?? []), [categories]);
+
+  // Chart drill-down: any clickable mark lands on the transaction list,
+  // pre-filtered and scoped to the Insights period.
+  function drill(params: Record<string, string>) {
+    const qs = new URLSearchParams({ ...params, from: period.from, to: period.to });
+    router.push(`/transactions?${qs.toString()}`);
+  }
 
   // Stable per-group color: groups in sort order take validated categorical
   // slots; overflow + uncategorized fold to muted. Same slot everywhere.
@@ -50,14 +59,16 @@ export function SpendingSection({ period }: { period: Period }) {
 
   return (
     <>
-      <SankeyCard txns={txns ?? []} maps={maps} groupColor={groupColor} groupName={groupName} ink={ink} />
+      <SankeyCard txns={txns ?? []} maps={maps} groupColor={groupColor} groupName={groupName} ink={ink} drill={drill} />
       <TrendsCard txns={txns ?? []} maps={maps} groupColor={groupColor} groupName={groupName} period={period} ink={ink} hasSpend={hasSpend} />
-      <BreakdownCard txns={txns ?? []} maps={maps} groupColor={groupColor} groupName={groupName} ink={ink} hasSpend={hasSpend} />
+      <BreakdownCard txns={txns ?? []} maps={maps} groupColor={groupColor} groupName={groupName} ink={ink} hasSpend={hasSpend} drill={drill} />
       <CalendarCard txns={txns ?? []} period={period} ink={ink} mode={mode} hasSpend={hasSpend} />
-      <PayeesCard txns={txns ?? []} ink={ink} mode={mode} />
+      <PayeesCard txns={txns ?? []} ink={ink} mode={mode} drill={drill} />
     </>
   );
 }
+
+type DrillFn = (params: Record<string, string>) => void;
 
 // ---------------------------------------------------------------------
 // 1. Cash-flow Sankey
@@ -68,12 +79,14 @@ function SankeyCard({
   groupColor,
   groupName,
   ink,
+  drill,
 }: {
   txns: import("@/lib/kosha/types").Transaction[];
   maps: ReturnType<typeof buildCategoryMaps>;
   groupColor: Map<string, string>;
   groupName: Map<string, string>;
   ink: ReturnType<typeof useChartTheme>["ink"];
+  drill: DrillFn;
 }) {
   const option = useMemo<EChartsOption | null>(() => {
     const spend = spendByGroup(txns, maps);
@@ -92,7 +105,8 @@ function SankeyCard({
     const POOL = "Budget";
     // Rightmost-column nodes label to their LEFT (over the flows) —
     // otherwise the names render past the chart edge and get clipped.
-    const nodes: { name: string; itemStyle?: { color: string }; label?: { position: "left" | "right" } }[] = [
+    // `groupId` rides along on spend nodes so clicks can drill down.
+    const nodes: { name: string; itemStyle?: { color: string }; label?: { position: "left" | "right" }; groupId?: string }[] = [
       { name: POOL, itemStyle: { color: AURORA_STOPS[1] } },
     ];
     const links: { source: string; target: string; value: number }[] = [];
@@ -104,7 +118,7 @@ function SankeyCard({
     }
     for (const [groupId, amt] of spend) {
       const name = groupName.get(groupId) ?? "Other";
-      nodes.push({ name, itemStyle: { color: groupColor.get(groupId) ?? ink.textMuted }, label: { position: "left" } });
+      nodes.push({ name, itemStyle: { color: groupColor.get(groupId) ?? ink.textMuted }, label: { position: "left" }, groupId });
       links.push({ source: POOL, target: name, value: minorToRupees(amt) });
     }
     const savings = totalIncome - totalExpense;
@@ -145,8 +159,20 @@ function SankeyCard({
   }, [txns, maps, groupColor, groupName, ink]);
 
   return (
-    <ChartCard title="Cash flow" subtitle="Income → budget → where it goes">
-      {option ? <KoshaChart option={option} height={340} ariaLabel="Cash flow Sankey diagram" /> : <EmptyChart message="No income or spending in this period yet." />}
+    <ChartCard title="Cash flow" subtitle="Income → budget → where it goes · tap a category to see its transactions">
+      {option ? (
+        <KoshaChart
+          option={option}
+          height={340}
+          ariaLabel="Cash flow Sankey diagram"
+          onChartClick={(p) => {
+            const groupId = (p.data as { groupId?: string } | undefined)?.groupId;
+            if (groupId && groupId !== "uncategorized") drill({ group: groupId });
+          }}
+        />
+      ) : (
+        <EmptyChart message="No income or spending in this period yet." />
+      )}
     </ChartCard>
   );
 }
@@ -245,6 +271,7 @@ function BreakdownCard({
   groupName,
   ink,
   hasSpend,
+  drill,
 }: {
   txns: import("@/lib/kosha/types").Transaction[];
   maps: ReturnType<typeof buildCategoryMaps>;
@@ -252,27 +279,44 @@ function BreakdownCard({
   groupName: Map<string, string>;
   ink: ReturnType<typeof useChartTheme>["ink"];
   hasSpend: boolean;
+  drill: DrillFn;
 }) {
   const [view, setView] = useState<"sunburst" | "treemap">("sunburst");
 
   const data = useMemo(() => {
     const byGroup = spendByCategoryInGroup(txns, maps);
-    const nodes: { name: string; value: number; itemStyle: { color: string }; children?: { name: string; value: number }[] }[] = [];
+    // catId/groupId are custom fields ECharts passes back on click — the
+    // drill-down reads them off params.data.
+    const nodes: {
+      name: string;
+      value: number;
+      itemStyle: { color: string };
+      groupId?: string;
+      children?: { name: string; value: number; catId?: string }[];
+    }[] = [];
     for (const [groupId, cats] of byGroup) {
       const children = Array.from(cats.entries()).map(([catId, amt]) => ({
         name: catId === "uncategorized" ? "Uncategorized" : maps.byId.get(catId)?.name ?? "—",
         value: minorToRupees(amt),
+        catId: catId === "uncategorized" ? undefined : catId,
       }));
       const total = children.reduce((s, c) => s + c.value, 0);
       nodes.push({
         name: (groupName.get(groupId) ?? "Other").replace(/^\S+\s/, ""),
         value: total,
         itemStyle: { color: groupColor.get(groupId) ?? ink.textMuted },
+        groupId: groupId === "uncategorized" ? undefined : groupId,
         children,
       });
     }
     return nodes.sort((a, b) => b.value - a.value);
   }, [txns, maps, groupColor, groupName, ink]);
+
+  function onSliceClick(p: { data?: unknown }) {
+    const d = p.data as { catId?: string; groupId?: string } | undefined;
+    if (d?.catId) drill({ category: d.catId });
+    else if (d?.groupId) drill({ group: d.groupId });
+  }
 
   const option = useMemo<EChartsOption | null>(() => {
     if (!hasSpend) return null;
@@ -294,6 +338,7 @@ function BreakdownCard({
             type: "sunburst",
             radius: [16, "92%"],
             data,
+            nodeClick: false, // clicks drill down to transactions instead of zooming
             label: { color: ink.text, fontSize: 10, minAngle: 12 },
             itemStyle: { borderColor: ink.surface, borderWidth: 2 },
             levels: [{}, { r0: 16, r: "58%" }, { r0: "58%", r: "92%", label: { fontSize: 9 } }],
@@ -322,7 +367,7 @@ function BreakdownCard({
   return (
     <ChartCard
       title="Where it goes"
-      subtitle="Category breakdown"
+      subtitle="Category breakdown · tap a slice for its transactions"
       action={
         <div className="grid grid-cols-2 gap-0.5 rounded-lg bg-surface-2 p-0.5 text-xs font-semibold">
           <button className={`rounded px-2 py-1 ${view === "sunburst" ? "bg-surface text-text" : "text-text-muted"}`} onClick={() => setView("sunburst")}>
@@ -334,7 +379,11 @@ function BreakdownCard({
         </div>
       }
     >
-      {option ? <KoshaChart option={option} height={320} resetKey={view} ariaLabel="Category breakdown" /> : <EmptyChart message="No spending in this period yet." />}
+      {option ? (
+        <KoshaChart option={option} height={320} resetKey={view} ariaLabel="Category breakdown" onChartClick={onSliceClick} />
+      ) : (
+        <EmptyChart message="No spending in this period yet." />
+      )}
     </ChartCard>
   );
 }
@@ -411,10 +460,12 @@ function PayeesCard({
   txns,
   ink,
   mode,
+  drill,
 }: {
   txns: import("@/lib/kosha/types").Transaction[];
   ink: ReturnType<typeof useChartTheme>["ink"];
   mode: "light" | "dark";
+  drill: DrillFn;
 }) {
   const stats = useMemo(() => payeeLeaderboard(txns, 10), [txns]);
 
@@ -449,8 +500,19 @@ function PayeesCard({
   }, [stats, ink, mode]);
 
   return (
-    <ChartCard title="Top payees" subtitle="Where the money actually goes">
-      {option ? <KoshaChart option={option} height={Math.max(160, stats.length * 30)} ariaLabel="Top payees bar chart" /> : <EmptyChart message="No payees recorded in this period." />}
+    <ChartCard title="Top payees" subtitle="Where the money actually goes · tap a bar for the list">
+      {option ? (
+        <KoshaChart
+          option={option}
+          height={Math.max(160, stats.length * 30)}
+          ariaLabel="Top payees bar chart"
+          onChartClick={(p) => {
+            if (p.name) drill({ payee: p.name });
+          }}
+        />
+      ) : (
+        <EmptyChart message="No payees recorded in this period." />
+      )}
     </ChartCard>
   );
 }
