@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Database, Download, Upload, FileSpreadsheet, ChevronRight } from "lucide-react";
 import { downloadBackup, restoreBackup, type Backup } from "@/lib/kosha/backup";
 import { Modal } from "./Modal";
+import { errMessage } from "@/lib/errors";
 
 export function BackupSettings() {
   const qc = useQueryClient();
@@ -20,7 +21,7 @@ export function BackupSettings() {
       await downloadBackup();
       toast.success("Backup downloaded");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Export failed");
+      toast.error(errMessage(err, "Export failed"));
     } finally {
       setBusy(false);
     }
@@ -48,7 +49,7 @@ export function BackupSettings() {
       toast.success(`Restored ${inserted} records`);
       setPending(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Restore failed");
+      toast.error(errMessage(err, "Restore failed"));
     } finally {
       setBusy(false);
     }

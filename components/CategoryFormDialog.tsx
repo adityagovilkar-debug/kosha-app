@@ -6,6 +6,7 @@ import { Modal } from "./Modal";
 import { useCreateCategory, useUpdateCategory } from "@/lib/kosha/categories";
 import { PALETTE_KEYS, paletteColor } from "@/lib/palette";
 import type { Category, CategoryKind } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 interface Props {
   open: boolean;
@@ -51,7 +52,7 @@ export function CategoryFormDialog({ open, onClose, editing, parent }: Props) {
       }
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }

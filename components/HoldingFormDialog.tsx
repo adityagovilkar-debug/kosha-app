@@ -6,6 +6,7 @@ import { Modal } from "./Modal";
 import { useAccounts } from "@/lib/kosha/accounts";
 import { useCreateHolding, useUpdateHolding } from "@/lib/kosha/holdings";
 import type { AssetClass, Holding } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 const ASSET_CLASSES: { value: AssetClass; label: string; unitsTracked: boolean }[] = [
   { value: "equity_mf", label: "Equity fund", unitsTracked: true },
@@ -53,7 +54,7 @@ export function HoldingFormDialog({ open, onClose, editing }: Props) {
       }
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }

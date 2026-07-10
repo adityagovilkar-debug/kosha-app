@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Modal } from "./Modal";
 import { useSetHoldingPrice } from "@/lib/kosha/holdings";
 import type { Holding } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 interface Props {
   open: boolean;
@@ -29,7 +30,7 @@ export function UpdatePriceDialog({ open, onClose, holding, currentPrice }: Prop
       toast.success("Price updated");
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }

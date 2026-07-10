@@ -90,7 +90,11 @@ function SankeyCard({
     }
 
     const POOL = "Budget";
-    const nodes: { name: string; itemStyle?: { color: string } }[] = [{ name: POOL, itemStyle: { color: AURORA_STOPS[1] } }];
+    // Rightmost-column nodes label to their LEFT (over the flows) —
+    // otherwise the names render past the chart edge and get clipped.
+    const nodes: { name: string; itemStyle?: { color: string }; label?: { position: "left" | "right" } }[] = [
+      { name: POOL, itemStyle: { color: AURORA_STOPS[1] } },
+    ];
     const links: { source: string; target: string; value: number }[] = [];
 
     for (const [catId, amt] of incomeByCat) {
@@ -100,12 +104,12 @@ function SankeyCard({
     }
     for (const [groupId, amt] of spend) {
       const name = groupName.get(groupId) ?? "Other";
-      nodes.push({ name, itemStyle: { color: groupColor.get(groupId) ?? ink.textMuted } });
+      nodes.push({ name, itemStyle: { color: groupColor.get(groupId) ?? ink.textMuted }, label: { position: "left" } });
       links.push({ source: POOL, target: name, value: minorToRupees(amt) });
     }
     const savings = totalIncome - totalExpense;
     if (savings > 0) {
-      nodes.push({ name: "Savings", itemStyle: { color: AURORA_STOPS[2] } });
+      nodes.push({ name: "Savings", itemStyle: { color: AURORA_STOPS[2] }, label: { position: "left" } });
       links.push({ source: POOL, target: "Savings", value: minorToRupees(savings) });
     }
 

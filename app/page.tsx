@@ -8,13 +8,14 @@ import { useAccounts, useAccountBalances } from "@/lib/kosha/accounts";
 import { useCategories } from "@/lib/kosha/categories";
 import { useRecentTransactions, useTransactionsInRange, useSplitParentIds } from "@/lib/kosha/transactions";
 import { usePendingRecurring } from "@/lib/kosha/recurring";
-import { useNetWorthHistory } from "@/lib/kosha/netWorth";
+import { useNetWorthHistory, computeNetWorth } from "@/lib/kosha/netWorth";
+import { useHoldings, useLatestPrices, useAllInvestmentTransactions } from "@/lib/kosha/holdings";
 import { useQuickAdd } from "@/components/QuickAddProvider";
 import { TransactionRow } from "@/components/TransactionRow";
 import { AnimatedMoney } from "@/components/AnimatedNumber";
 import { Sparkline } from "@/components/Sparkline";
 import { BackupNudge } from "@/components/BackupNudge";
-import { formatMoney } from "@/lib/money";
+import { formatMoney, formatCompactINR } from "@/lib/money";
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -39,16 +40,33 @@ export default function DashboardPage() {
   const todayStr = today();
   const { data: monthTx } = useTransactionsInRange(monthStart, todayStr);
 
+  const { data: holdings } = useHoldings();
+  const { data: latestPrices } = useLatestPrices();
+  const { data: investmentTxns } = useAllInvestmentTransactions();
+
   const accountsById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);
   const categoriesById = useMemo(() => new Map((categories ?? []).map((c) => [c.id, c])), [categories]);
 
-  const netWorth = (accounts ?? []).reduce((sum, a) => sum + a.opening_balance + (balances?.[a.id] ?? 0), 0);
+  // Same market-adjusted calculation the Wealth tab and snapshots use, so
+  // "net worth" means one thing everywhere. Falls back to cash-basis while
+  // the holdings queries are still loading.
+  const netWorth = useMemo(() => {
+    if (!accounts || !balances) return 0;
+    if (holdings && latestPrices && investmentTxns) {
+      const nw = computeNetWorth(accounts, balances, holdings, investmentTxns, latestPrices);
+      return nw.assets - nw.liabilities;
+    }
+    return accounts.reduce((sum, a) => sum + a.opening_balance + (balances[a.id] ?? 0), 0);
+  }, [accounts, balances, holdings, latestPrices, investmentTxns]);
 
   const { income, expense } = useMemo(() => {
     let income = 0;
     let expense = 0;
     for (const tx of monthTx ?? []) {
       if (tx.type === "transfer") continue;
+      // An EMI's principal leg (positive, on the loan account) is internal
+      // debt movement, not income — only the bank-side outflow is cash flow.
+      if (tx.type === "loan_payment" && tx.amount > 0) continue;
       if (tx.amount > 0) income += tx.amount;
       else expense += -tx.amount;
     }
@@ -104,22 +122,30 @@ export default function DashboardPage() {
             <p className="mt-1 text-xs text-text-muted">Income − spent so far − upcoming commitments</p>
           </div>
 
-          {/* Stat tiles */}
+          {/* Stat tiles. Compact lakh/crore figures so large amounts never
+              overflow the narrow tiles on a phone; exact values live in the
+              hero, Transactions, and Wealth. */}
           <div className="mb-4 grid grid-cols-3 gap-3">
-            <div className="card p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Net worth</p>
-              <p className="money mt-1 text-lg font-bold">{formatMoney(netWorth)}</p>
+            <div className="card min-w-0 p-4">
+              <p className="truncate text-xs font-semibold uppercase tracking-wide text-text-muted">Net worth</p>
+              <p className="money mt-1 truncate text-lg font-bold" title={formatMoney(netWorth)}>
+                {formatCompactINR(netWorth)}
+              </p>
               {netWorthSeries.length >= 2 && (
                 <Sparkline points={netWorthSeries} className="mt-1 text-brand-400" width={80} height={20} />
               )}
             </div>
-            <div className="card p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">In</p>
-              <p className="money mt-1 text-lg font-bold text-income">{formatMoney(income)}</p>
+            <div className="card min-w-0 p-4">
+              <p className="truncate text-xs font-semibold uppercase tracking-wide text-text-muted">In</p>
+              <p className="money mt-1 truncate text-lg font-bold text-income" title={formatMoney(income)}>
+                {formatCompactINR(income)}
+              </p>
             </div>
-            <div className="card p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Out</p>
-              <p className="money mt-1 text-lg font-bold text-expense">{formatMoney(expense)}</p>
+            <div className="card min-w-0 p-4">
+              <p className="truncate text-xs font-semibold uppercase tracking-wide text-text-muted">Out</p>
+              <p className="money mt-1 truncate text-lg font-bold text-expense" title={formatMoney(expense)}>
+                {formatCompactINR(expense)}
+              </p>
             </div>
           </div>
 

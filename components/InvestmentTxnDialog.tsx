@@ -6,6 +6,7 @@ import { Modal } from "./Modal";
 import { useCreateTransaction } from "@/lib/kosha/transactions";
 import { rupeesToMinor, formatMoney } from "@/lib/money";
 import type { Holding } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 type Kind = "investment_buy" | "investment_sell" | "dividend";
 
@@ -67,7 +68,7 @@ export function InvestmentTxnDialog({ open, onClose, holding }: Props) {
       toast.success(`${KIND_LABELS[kind]} recorded`);
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }

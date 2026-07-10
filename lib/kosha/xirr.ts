@@ -27,6 +27,12 @@ export function xirr(cashFlows: CashFlow[], guess = 0.15): number | null {
     return sorted.reduce((sum, cf, i) => sum - (years[i] * cf.amount) / Math.pow(1 + rate, years[i] + 1), 0);
   }
 
+  // Convergence tolerance is relative to the flows' scale: amounts are in
+  // paise, so a lakh-sized portfolio has |flows| ~ 1e7 and an absolute
+  // "< 1" test would reject perfectly good roots as non-converged.
+  const scale = sorted.reduce((s, cf) => s + Math.abs(cf.amount), 0);
+  const tolerance = Math.max(1, scale * 1e-6);
+
   let rate = guess;
   for (let i = 0; i < 100; i++) {
     const f = npv(rate);
@@ -35,8 +41,11 @@ export function xirr(cashFlows: CashFlow[], guess = 0.15): number | null {
     let nextRate = rate - f / fPrime;
     if (nextRate <= -1) nextRate = (rate - 1) / 2; // keep (1+rate) positive
     if (!Number.isFinite(nextRate)) break;
-    if (Math.abs(nextRate - rate) < 1e-7) return nextRate;
+    if (Math.abs(nextRate - rate) < 1e-7) {
+      rate = nextRate;
+      break;
+    }
     rate = nextRate;
   }
-  return Number.isFinite(rate) && rate > -1 && Math.abs(npv(rate)) < 1 ? rate : null;
+  return Number.isFinite(rate) && rate > -1 && Math.abs(npv(rate)) < tolerance ? rate : null;
 }

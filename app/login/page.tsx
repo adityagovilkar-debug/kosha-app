@@ -6,6 +6,7 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
 import { toast } from "sonner";
 import { Mail, KeyRound, CheckCircle2 } from "lucide-react";
 import { APP_NAME, APP_TAGLINE } from "@/lib/brand";
+import { errMessage } from "@/lib/errors";
 
 type Method = "password" | "magic";
 
@@ -49,7 +50,7 @@ export default function LoginPage() {
       router.replace("/");
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setLoading(false);
     }
@@ -67,7 +68,7 @@ export default function LoginPage() {
       if (error) throw error;
       setLinkSent(true);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setLoading(false);
     }

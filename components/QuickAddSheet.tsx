@@ -13,6 +13,7 @@ import {
   useCreateSplitTransaction,
   useUpdateTransaction,
 } from "@/lib/kosha/transactions";
+import { errMessage } from "@/lib/errors";
 import { useRecentPayees } from "@/lib/kosha/payees";
 import { COMMON_CURRENCIES, useFxRate } from "@/lib/kosha/fx";
 import { useTripMode } from "@/lib/kosha/settings";
@@ -23,7 +24,9 @@ import type { CategoryKind, Transaction } from "@/lib/kosha/types";
 
 type Mode = "expense" | "income" | "transfer";
 const LAST_ACCOUNT_KEY = "kosha-last-account";
-const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "0", "⌫"];
+// Backspace lives next to the amount display, freeing the 12th key for a
+// decimal point (paise were impossible to enter before).
+const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "+", "0", "."];
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -142,15 +145,17 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
   const splitsValid = splitMode && splits.length > 0 && total !== null && splitTotal === total && splits.every((s) => s.categoryId);
 
   function pressKey(k: string) {
-    if (k === "⌫") {
-      setAmount((a) => a.slice(0, -1));
-      return;
-    }
     setAmount((a) => {
+      const lastAddend = a.split("+").pop() ?? "";
       if (k === "+" && (a === "" || a.endsWith("+"))) return a; // no leading/double +
-      if (k === "." && /(^|\+)[^+]*\.[^+]*$/.test(a + k)) return a; // one decimal per addend
+      if (k === "." && (lastAddend === "" || lastAddend.includes("."))) return a; // no leading/second dot per addend
+      if (/\d/.test(k) && /\.\d{2}$/.test(lastAddend)) return a; // paise = max 2 decimals
       return a + k;
     });
+  }
+
+  function backspace() {
+    setAmount((a) => a.slice(0, -1));
   }
 
   async function onReceiptSelected(e: React.ChangeEvent<HTMLInputElement>) {
@@ -171,7 +176,7 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
         toast("Receipt attached — fill in the details");
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Couldn't upload that receipt");
+      toast.error(errMessage(err, "Couldn't upload that receipt"));
     }
   }
 
@@ -269,7 +274,7 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
         close();
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }
@@ -336,9 +341,21 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
               ))}
             </select>
           )}
-          <p className={`money text-4xl font-bold ${mode === "expense" ? "text-expense" : mode === "income" ? "text-income" : "text-text"}`}>
-            {amount ? amount : "0"}
-          </p>
+          <div className="relative">
+            <p className={`money break-all px-9 text-4xl font-bold ${mode === "expense" ? "text-expense" : mode === "income" ? "text-income" : "text-text"}`}>
+              {amount ? amount : "0"}
+            </p>
+            {amount && (
+              <button
+                type="button"
+                onClick={backspace}
+                className="absolute right-0 top-1/2 -translate-y-1/2 rounded-lg p-2 text-text-muted transition hover:bg-surface-2"
+                aria-label="Delete last digit"
+              >
+                <Delete className="h-5 w-5" />
+              </button>
+            )}
+          </div>
           {total !== null && amount.includes("+") && !isForeign && (
             <p className="money mt-1 text-sm text-text-muted">= {formatMoney(total)}</p>
           )}
@@ -355,7 +372,7 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
                 onClick={() => pressKey(k)}
                 className="btn-outline !min-h-[40px] text-lg font-semibold"
               >
-                {k === "⌫" ? <Delete className="mx-auto h-5 w-5" /> : k}
+                {k}
               </button>
             ))}
           </div>
@@ -490,13 +507,15 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
         </>
       )}
 
-      {/* Date */}
+      {/* Date. min-w-0 on the input + compact chip buttons keep this row
+          inside the viewport on narrow phones ("Yesterday" was stretching
+          the whole page). */}
       <div className="flex items-center gap-2">
-        <input className="input flex-1" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
-        <button type="button" className="btn-outline shrink-0" onClick={() => setDate(today())}>
+        <input className="input min-w-0 flex-1" type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+        <button type="button" className="btn-outline shrink-0 !min-h-0 !px-2.5 !py-2 !text-sm" onClick={() => setDate(today())}>
           Today
         </button>
-        <button type="button" className="btn-outline shrink-0" onClick={() => setDate(yesterday())}>
+        <button type="button" className="btn-outline shrink-0 !min-h-0 !px-2.5 !py-2 !text-sm" onClick={() => setDate(yesterday())}>
           Yesterday
         </button>
       </div>

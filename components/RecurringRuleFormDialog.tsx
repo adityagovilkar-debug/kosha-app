@@ -10,6 +10,7 @@ import { useCreateRecurringRule, useUpdateRecurringRule } from "@/lib/kosha/recu
 import { rupeesToMinor, minorToRupees } from "@/lib/money";
 import { paletteColor } from "@/lib/palette";
 import type { AmountMode, CategoryKind, Frequency, RecurringRule, RecurringType } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 const TYPE_OPTIONS: { value: RecurringType; label: string }[] = [
   { value: "expense", label: "Expense" },
@@ -103,7 +104,7 @@ export function RecurringRuleFormDialog({ open, onClose, editing }: Props) {
       }
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }

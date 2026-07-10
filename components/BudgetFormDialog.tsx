@@ -7,6 +7,7 @@ import { useCategories, groupCategories } from "@/lib/kosha/categories";
 import { useCreateBudget, useUpdateBudget, useBudgets } from "@/lib/kosha/budgets";
 import { rupeesToMinor, minorToRupees } from "@/lib/money";
 import type { Budget } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 interface Props {
   open: boolean;
@@ -48,7 +49,7 @@ export function BudgetFormDialog({ open, onClose, editing }: Props) {
       }
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }

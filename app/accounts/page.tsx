@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Plus, Archive, Pencil } from "lucide-react";
 import { useAccounts, useAccountBalances, useArchiveAccount } from "@/lib/kosha/accounts";
 import { AccountFormDialog } from "@/components/AccountFormDialog";
-import { formatMoney } from "@/lib/money";
+import { formatMoney, formatCompactINR } from "@/lib/money";
 import { paletteColor } from "@/lib/palette";
 import type { Account } from "@/lib/kosha/types";
 
@@ -56,7 +56,7 @@ export default function AccountsPage() {
         {(accounts ?? []).map((a) => {
           const balance = a.opening_balance + (balances?.[a.id] ?? 0);
           return (
-            <div key={a.id} className="card flex items-center gap-4 p-4">
+            <div key={a.id} className="card flex items-center gap-3 p-4">
               <div
                 className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-xl"
                 style={{ backgroundColor: `${paletteColor(a.color)}26` }}
@@ -65,11 +65,17 @@ export default function AccountsPage() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{a.name}</p>
-                <p className="text-sm capitalize text-text-muted">{a.kind.replace("_", " ")} · {a.currency}</p>
+                <p className="truncate text-sm capitalize text-text-muted">{a.kind.replace("_", " ")} · {a.currency}</p>
               </div>
-              <div className="text-right">
-                <p className={`money text-lg font-bold ${balance < 0 ? "text-expense" : "text-text"}`}>
-                  {formatMoney(balance, a.currency)}
+              {/* nowrap + shrink-0 so the amount claims its width and the
+                  description truncates instead of colliding with it; crore+
+                  INR balances go compact so the row still fits a phone. */}
+              <div className="shrink-0 text-right">
+                <p
+                  className={`money whitespace-nowrap text-base font-bold sm:text-lg ${balance < 0 ? "text-expense" : "text-text"}`}
+                  title={formatMoney(balance, a.currency)}
+                >
+                  {a.currency === "INR" && Math.abs(balance) >= 1e9 ? formatCompactINR(balance) : formatMoney(balance, a.currency)}
                 </p>
               </div>
               <div className="flex shrink-0 gap-1">

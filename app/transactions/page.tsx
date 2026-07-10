@@ -12,6 +12,7 @@ import { TransactionRow } from "@/components/TransactionRow";
 import { Modal } from "@/components/Modal";
 import { formatMoneySigned } from "@/lib/money";
 import type { Transaction, TransactionFilters } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 function dayLabel(dateStr: string) {
   const d = parseISO(dateStr);
@@ -51,7 +52,7 @@ export default function TransactionsPage() {
       await deleteTx.mutateAsync(pendingDelete);
       toast.success("Deleted");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setPendingDelete(null);
     }
@@ -74,7 +75,11 @@ export default function TransactionsPage() {
 
       <div className="space-y-5">
         {groups.map(([date, txs]) => {
-          const dayTotal = txs.filter((t) => t.type !== "transfer").reduce((sum, t) => sum + t.amount, 0);
+          // Transfers and the loan-side EMI leg (positive loan_payment) are
+          // internal movements, not cash flow for the day.
+          const dayTotal = txs
+            .filter((t) => t.type !== "transfer" && !(t.type === "loan_payment" && t.amount > 0))
+            .reduce((sum, t) => sum + t.amount, 0);
           return (
             <div key={date}>
               <div className="mb-1 flex items-baseline justify-between px-2">

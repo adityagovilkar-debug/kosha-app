@@ -7,6 +7,7 @@ import { useApiKeyStatus, useSaveApiKey, useClearApiKey, useTripMode, setTripMod
 import { useTheme } from "@/lib/theme";
 import { AppLockSettings } from "@/components/AppLockSettings";
 import { BackupSettings } from "@/components/BackupSettings";
+import { errMessage } from "@/lib/errors";
 
 export default function SettingsPage() {
   const { data: keyStatus } = useApiKeyStatus();
@@ -28,7 +29,7 @@ export default function SettingsPage() {
       setApiKeyInput("");
       toast.success("API key saved");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     }
   }
 

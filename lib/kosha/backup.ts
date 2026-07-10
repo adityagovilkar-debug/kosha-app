@@ -113,6 +113,18 @@ export async function restoreBackup(backup: Backup): Promise<{ inserted: number 
     inserted += rows.length;
   };
 
+  // Like insert, but skips rows that hit a unique constraint — needed for
+  // tables keyed by natural keys (e.g. one net-worth snapshot per day,
+  // where today's row already exists the moment the app was opened).
+  const insertIgnoringDuplicates = async (table: string, rows: Row[], onConflict: string) => {
+    if (rows.length === 0) return;
+    for (let i = 0; i < rows.length; i += 500) {
+      const { error } = await sb().from(table).upsert(rows.slice(i, i + 500), { onConflict, ignoreDuplicates: true });
+      if (error) throw error;
+    }
+    inserted += rows.length;
+  };
+
   // 1. Accounts
   await insert(
     "kosha_accounts",
@@ -179,8 +191,10 @@ export async function restoreBackup(backup: Backup): Promise<{ inserted: number 
     (d.kosha_holding_prices ?? []).map((r) => ({ ...r, holding_id: remapId(holdingMap, r.holding_id) })).filter((r) => r.holding_id),
   );
 
-  // 8. Net-worth snapshots (remap account ids inside the breakdown jsonb)
-  await insert(
+  // 8. Net-worth snapshots (remap account ids inside the breakdown jsonb).
+  // unique(user_id, date) — today's snapshot already exists on any active
+  // account, so a plain insert would abort the whole restore here.
+  await insertIgnoringDuplicates(
     "kosha_net_worth_snapshots",
     (d.kosha_net_worth_snapshots ?? []).map((r) => {
       const breakdown = r.breakdown && typeof r.breakdown === "object" ? (r.breakdown as Record<string, number>) : null;
@@ -189,6 +203,7 @@ export async function restoreBackup(backup: Backup): Promise<{ inserted: number 
         : null;
       return { ...r, id: crypto.randomUUID(), breakdown: remappedBreakdown, user_id };
     }),
+    "user_id,date",
   );
 
   return { inserted };

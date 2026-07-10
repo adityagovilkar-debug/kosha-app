@@ -78,7 +78,13 @@ export function useAccountBalances() {
   return useQuery({
     queryKey: ["kosha_account_balances"],
     queryFn: async (): Promise<Record<string, number>> => {
-      const { data, error } = await sb().from("kosha_transactions").select("account_id, amount").eq("status", "cleared");
+      // Split children are excluded — their parent row already carries the
+      // full amount, so summing both would double-count every split.
+      const { data, error } = await sb()
+        .from("kosha_transactions")
+        .select("account_id, amount")
+        .eq("status", "cleared")
+        .is("parent_id", null);
       if (error) throw error;
       const sums: Record<string, number> = {};
       for (const row of data ?? []) {

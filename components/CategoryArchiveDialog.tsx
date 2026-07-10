@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Modal } from "./Modal";
 import { useArchiveCategory } from "@/lib/kosha/categories";
 import type { Category } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 interface Props {
   open: boolean;
@@ -30,7 +31,7 @@ export function CategoryArchiveDialog({ open, onClose, category, siblings }: Pro
       toast.success(count > 0 ? `Archived — ${count} transaction(s) reassigned` : "Category archived");
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }

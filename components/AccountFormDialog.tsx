@@ -7,6 +7,7 @@ import { useCreateAccount, useUpdateAccount } from "@/lib/kosha/accounts";
 import { rupeesToMinor, minorToRupees } from "@/lib/money";
 import { PALETTE_KEYS, paletteColor } from "@/lib/palette";
 import type { Account, AccountKind } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 const KIND_OPTIONS: { value: AccountKind; label: string; icon: string }[] = [
   { value: "bank", label: "Bank", icon: "🏦" },
@@ -71,7 +72,7 @@ export function AccountFormDialog({ open, onClose, account }: Props) {
       }
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }

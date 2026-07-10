@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { addDays, addWeeks, addMonths, addYears, isAfter, parseISO, format } from "date-fns";
+import { addDays, addWeeks, addMonths, addYears, isAfter, isBefore, parseISO, format } from "date-fns";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import type { Frequency, NewRecurringRule, RecurringRule, Transaction } from "./types";
 
@@ -19,19 +19,27 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Advance a date by one occurrence. The date's own day-of-month/weekday IS the schedule anchor. */
-function stepDate(date: Date, frequency: Frequency, interval: number): Date {
+/**
+ * The n-th occurrence of a rule, computed FROM THE START DATE every time —
+ * never by stepping the previous occurrence. Iterative stepping drifts: a
+ * "31st of the month" rule stepped through February lands on the 28th and
+ * stays there forever, because addMonths(Feb 28) is Mar 28. Anchoring on
+ * start_date means short months clamp (Jan 31 → Feb 28) but the schedule
+ * snaps back to the 31st the moment the month allows it.
+ */
+function nthOccurrence(start: Date, frequency: Frequency, interval: number, n: number): Date {
+  const step = interval * n;
   switch (frequency) {
     case "daily":
-      return addDays(date, interval);
+      return addDays(start, step);
     case "weekly":
-      return addWeeks(date, interval);
+      return addWeeks(start, step);
     case "monthly":
-      return addMonths(date, interval);
+      return addMonths(start, step);
     case "quarterly":
-      return addMonths(date, interval * 3);
+      return addMonths(start, step * 3);
     case "yearly":
-      return addYears(date, interval);
+      return addYears(start, step);
     default:
       throw new Error(`Unknown frequency: ${frequency}`);
   }
@@ -128,11 +136,24 @@ async function materializeDueRules(userId: string) {
 
   for (const rule of dueRules as RecurringRule[]) {
     const endDate = rule.end_date ? parseISO(rule.end_date) : null;
-    let due = parseISO(rule.next_due);
+    const start = parseISO(rule.start_date);
+    const nextDue = parseISO(rule.next_due);
+
+    // Walk occurrence indices anchored on start_date until we reach
+    // next_due (bounded: even a years-old daily rule is a few thousand
+    // cheap date adds), then collect everything due through today.
+    let n = 0;
+    let due = start;
+    while (isBefore(due, nextDue) && n < 20000) {
+      n++;
+      due = nthOccurrence(start, rule.frequency, rule.interval, n);
+    }
+
     const dueDates: string[] = [];
     while (!isAfter(due, todayDate) && (!endDate || !isAfter(due, endDate))) {
       dueDates.push(format(due, "yyyy-MM-dd"));
-      due = stepDate(due, rule.frequency, rule.interval);
+      n++;
+      due = nthOccurrence(start, rule.frequency, rule.interval, n);
     }
 
     for (const dueDate of dueDates) {

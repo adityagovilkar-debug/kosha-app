@@ -8,6 +8,7 @@ import { useAccounts } from "@/lib/kosha/accounts";
 import { supabaseBrowser } from "@/lib/supabase/browser";
 import { parseCsv, parseDateCell, parseAmountCell, isNegativeCell, type DateFormat } from "@/lib/kosha/csv";
 import { formatMoneySigned } from "@/lib/money";
+import { errMessage } from "@/lib/errors";
 
 type Stage = "upload" | "map" | "preview";
 type AmountMode = "signed" | "debit_credit";
@@ -183,7 +184,7 @@ export default function ImportPage() {
       setParsed([]);
       setRows([]);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Import failed");
+      toast.error(errMessage(err, "Import failed"));
     } finally {
       setImporting(false);
     }

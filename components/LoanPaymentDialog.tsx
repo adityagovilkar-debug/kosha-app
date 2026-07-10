@@ -7,6 +7,7 @@ import { useAccounts } from "@/lib/kosha/accounts";
 import { useLoanPaymentCount, splitForInstallment, useLogLoanPayment } from "@/lib/kosha/loans";
 import { formatMoney } from "@/lib/money";
 import type { Account } from "@/lib/kosha/types";
+import { errMessage } from "@/lib/errors";
 
 interface Props {
   open: boolean;
@@ -49,7 +50,7 @@ export function LoanPaymentDialog({ open, onClose, loan }: Props) {
       toast.success("EMI payment logged");
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Something went wrong");
+      toast.error(errMessage(err));
     } finally {
       setSaving(false);
     }

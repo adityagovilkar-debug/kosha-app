@@ -77,10 +77,10 @@ export function parseDateCell(raw: string, fmt: DateFormat): string | null {
   return `${yn}-${String(mn).padStart(2, "0")}-${String(dn).padStart(2, "0")}`;
 }
 
-/** Parse an amount cell → integer paise (unsigned). Strips currency symbols, commas, and Dr/Cr. */
+/** Parse an amount cell → integer paise (unsigned). Strips currency symbols, commas, parens (accounting negatives), and Dr/Cr. */
 export function parseAmountCell(raw: string): number | null {
   if (!raw) return null;
-  const cleaned = raw.replace(/[₹$€£,\s]/g, "").replace(/(dr|cr)$/i, "").trim();
+  const cleaned = raw.replace(/[₹$€£,()\s]/g, "").replace(/(dr|cr)$/i, "").trim();
   if (!cleaned || cleaned === "-") return null;
   const n = parseFloat(cleaned);
   if (!Number.isFinite(n)) return null;

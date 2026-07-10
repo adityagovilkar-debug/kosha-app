@@ -8,12 +8,23 @@ import type { NewTransaction, Transaction, TransactionFilters } from "./types";
 const sb = supabaseBrowser;
 const PAGE_SIZE = 50;
 
+// getSession (local read) rather than getUser (server round-trip): the id
+// is only stamped onto rows whose ownership RLS re-checks server-side
+// anyway, and a network call here meant the offline write-queue could
+// never be reached — uid() itself failed before the enqueue branch ran.
 async function uid(): Promise<string> {
   const {
-    data: { user },
-  } = await sb().auth.getUser();
-  if (!user) throw new Error("Not signed in");
-  return user.id;
+    data: { session },
+  } = await sb().auth.getSession();
+  if (!session?.user) throw new Error("Not signed in");
+  return session.user.id;
+}
+
+/** True for errors that mean "couldn't reach the server", not "server said no". */
+function isNetworkError(err: unknown): boolean {
+  const msg =
+    err instanceof Error ? err.message : ((err as { message?: string })?.message ?? "");
+  return /failed to fetch|fetch failed|network|load failed/i.test(msg);
 }
 
 /** Paginated, filterable transaction list — newest first, grouped by day in the UI. */
@@ -34,7 +45,12 @@ export function useTransactions(filters: TransactionFilters = {}) {
       if (filters.tag) q = q.contains("tags", [filters.tag]);
       if (filters.dateFrom) q = q.gte("date", filters.dateFrom);
       if (filters.dateTo) q = q.lte("date", filters.dateTo);
-      if (filters.search) q = q.or(`payee.ilike.%${filters.search}%,note.ilike.%${filters.search}%`);
+      if (filters.search) {
+        // Commas/parens/percent are PostgREST filter syntax — a search like
+        // "Sharma, Sons (P) Ltd" would 400 the whole query if passed raw.
+        const safe = filters.search.replace(/[,()%\\]/g, " ").trim();
+        if (safe) q = q.or(`payee.ilike.%${safe}%,note.ilike.%${safe}%`);
+      }
       q = q
         .order("date", { ascending: false })
         .order("created_at", { ascending: false })
@@ -99,7 +115,9 @@ export function useRecentTransactions(limit = 8) {
  * Cleared transactions within a date range (used for month in/out and
  * safe-to-spend). Pending rows — unconfirmed recurring occurrences or
  * receipt-scan drafts — haven't actually happened yet, so they're excluded
- * from real cash-flow totals (KOSHA-PLAN.md principle #3).
+ * from real cash-flow totals (KOSHA-PLAN.md principle #3). Split children
+ * are excluded too: their parent already carries the total, so counting
+ * both would double every split.
  */
 export function useTransactionsInRange(dateFrom: string, dateTo: string) {
   return useQuery({
@@ -109,6 +127,7 @@ export function useTransactionsInRange(dateFrom: string, dateTo: string) {
         .from("kosha_transactions")
         .select("*")
         .eq("status", "cleared")
+        .is("parent_id", null)
         .gte("date", dateFrom)
         .lte("date", dateTo);
       if (error) throw error;
@@ -128,15 +147,26 @@ export function useCreateTransaction() {
     mutationFn: async (input: NewTransaction): Promise<{ queued: boolean }> => {
       const user_id = await uid();
       const row = { tags: [], status: "cleared" as const, ...input, user_id };
-      // Offline: queue durably and report "queued" so the UI can say so.
-      // The OfflineSync component flushes it when connectivity returns.
+      // Offline (or the request itself failed to reach the server): queue
+      // durably and report "queued" so the UI can say so. The OfflineSync
+      // component flushes it when connectivity returns. navigator.onLine
+      // alone isn't trustworthy — captive portals and flaky mobile data
+      // report online while requests still fail — so both paths queue.
       if (isOffline()) {
         await enqueueTx(row);
         return { queued: true };
       }
-      const { error } = await sb().from("kosha_transactions").insert(row);
-      if (error) throw error;
-      return { queued: false };
+      try {
+        const { error } = await sb().from("kosha_transactions").insert(row);
+        if (error) throw error;
+        return { queued: false };
+      } catch (err) {
+        if (isNetworkError(err)) {
+          await enqueueTx(row);
+          return { queued: true };
+        }
+        throw err;
+      }
     },
     onSuccess: () => invalidateAll(qc),
   });
@@ -186,13 +216,20 @@ interface SplitInput {
   splits: { category_id: string | null; amount: number; note?: string }[];
 }
 
-/** Creates a parent row for the total plus one child row per category slice. */
+/**
+ * Creates a parent row for the total plus one child row per category slice.
+ * Callers pass positive magnitudes; the sign convention (expense = money
+ * out = negative) is applied HERE, exactly like the single-transaction
+ * path does — split expenses were previously stored positive and counted
+ * as income everywhere.
+ */
 export function useCreateSplitTransaction() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: SplitInput) => {
       const user_id = await uid();
-      const total = input.splits.reduce((sum, s) => sum + s.amount, 0);
+      const sign = input.type === "income" ? 1 : -1;
+      const total = sign * input.splits.reduce((sum, s) => sum + Math.abs(s.amount), 0);
       const { data: parent, error: parentError } = await sb()
         .from("kosha_transactions")
         .insert({
@@ -213,7 +250,7 @@ export function useCreateSplitTransaction() {
         user_id,
         account_id: input.account_id,
         date: input.date,
-        amount: s.amount,
+        amount: sign * Math.abs(s.amount),
         type: input.type,
         category_id: s.category_id,
         note: s.note ?? null,
