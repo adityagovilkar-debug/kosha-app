@@ -2,14 +2,16 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
-import { KeyRound, Plane, CheckCircle2 } from "lucide-react";
+import { KeyRound, Plane, CheckCircle2, Sun, Moon } from "lucide-react";
 import { useApiKeyStatus, useSaveApiKey, useClearApiKey, useTripMode, setTripMode } from "@/lib/kosha/settings";
+import { useTheme } from "@/lib/theme";
 
 export default function SettingsPage() {
   const { data: keyStatus } = useApiKeyStatus();
   const saveKey = useSaveApiKey();
   const clearKey = useClearApiKey();
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [theme, setTheme] = useTheme();
 
   const trip = useTripMode();
   const [tripEnabled, setTripEnabled] = useState(trip?.enabled ?? false);
@@ -48,6 +50,25 @@ export default function SettingsPage() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
       <h1 className="mb-6 text-2xl font-bold tracking-tight">Settings</h1>
+
+      {/* Appearance */}
+      <div className="card mb-6 p-5">
+        <h2 className="mb-3 text-lg font-bold">Appearance</h2>
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface-2 p-1">
+          <button
+            onClick={() => setTheme("dark")}
+            className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition ${theme === "dark" ? "bg-surface text-text shadow-sm" : "text-text-muted"}`}
+          >
+            <Moon className="h-4 w-4" /> Dark
+          </button>
+          <button
+            onClick={() => setTheme("light")}
+            className={`flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition ${theme === "light" ? "bg-surface text-text shadow-sm" : "text-text-muted"}`}
+          >
+            <Sun className="h-4 w-4" /> Light
+          </button>
+        </div>
+      </div>
 
       {/* Receipt scanning */}
       <div className="card mb-6 p-5">

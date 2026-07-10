@@ -34,6 +34,19 @@ export function formatMoneySigned(minorUnits: number, currency = "INR"): string 
   return sign + formatMoney(Math.abs(minorUnits), currency);
 }
 
+/**
+ * Compact money for chart axes/labels using Indian lakh/crore scale, e.g.
+ * 12345678 (paise) -> "₹1.2L", 987654321 -> "₹98.8L", 1234567890 -> "₹12.3Cr".
+ */
+export function formatCompactINR(minorUnits: number): string {
+  const rupees = Math.abs(minorUnits) / 100;
+  const sign = minorUnits < 0 ? "-" : "";
+  if (rupees >= 1e7) return `${sign}₹${(rupees / 1e7).toFixed(rupees >= 1e8 ? 0 : 1)}Cr`;
+  if (rupees >= 1e5) return `${sign}₹${(rupees / 1e5).toFixed(rupees >= 1e6 ? 0 : 1)}L`;
+  if (rupees >= 1e3) return `${sign}₹${(rupees / 1e3).toFixed(rupees >= 1e4 ? 0 : 1)}k`;
+  return `${sign}₹${Math.round(rupees)}`;
+}
+
 /** Convert a rupee amount (float, as typed by a human) to integer paise. */
 export function rupeesToMinor(rupees: number): number {
   return Math.round(rupees * 100);

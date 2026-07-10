@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 // Theme (light/dark) is stored locally on the device and applied to <html>.
 // A pre-paint script in app/layout.tsx applies the saved value before first
 // render to avoid a flash. Dark is the default — it's the "Aurora Ledger"
@@ -19,6 +21,19 @@ export function setTheme(theme: Theme) {
   try {
     localStorage.setItem(THEME_KEY, theme);
   } catch {}
+}
+
+/** Reactive theme read + setter, kept in sync with the <html> class. */
+export function useTheme(): [Theme, (t: Theme) => void] {
+  // Lazy-init from the live class — the prepaint script sets it before
+  // hydration, so this is correct without a sync setState in the effect.
+  const [theme, setThemeState] = useState<Theme>(getTheme);
+  useEffect(() => {
+    const observer = new MutationObserver(() => setThemeState(getTheme()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return [theme, setTheme];
 }
 
 // Inlined into <head> as a string so it runs before paint.

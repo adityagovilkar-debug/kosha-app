@@ -8,8 +8,11 @@ import { useAccounts, useAccountBalances } from "@/lib/kosha/accounts";
 import { useCategories } from "@/lib/kosha/categories";
 import { useRecentTransactions, useTransactionsInRange, useSplitParentIds } from "@/lib/kosha/transactions";
 import { usePendingRecurring } from "@/lib/kosha/recurring";
+import { useNetWorthHistory } from "@/lib/kosha/netWorth";
 import { useQuickAdd } from "@/components/QuickAddProvider";
 import { TransactionRow } from "@/components/TransactionRow";
+import { AnimatedMoney } from "@/components/AnimatedNumber";
+import { Sparkline } from "@/components/Sparkline";
 import { formatMoney } from "@/lib/money";
 
 function today() {
@@ -23,7 +26,13 @@ export default function DashboardPage() {
   const { data: recent } = useRecentTransactions(8);
   const { data: splitParentIds } = useSplitParentIds();
   const { data: pendingRecurring } = usePendingRecurring();
+  const { data: snapshots } = useNetWorthHistory();
   const { open: openQuickAdd } = useQuickAdd();
+
+  const netWorthSeries = useMemo(
+    () => (snapshots ?? []).slice(-30).map((s) => s.total_assets - s.total_liabilities),
+    [snapshots],
+  );
 
   const monthStart = format(startOfMonth(new Date()), "yyyy-MM-dd");
   const todayStr = today();
@@ -83,11 +92,12 @@ export default function DashboardPage() {
       ) : (
         <>
           {/* Hero: safe to spend */}
-          <div className="card mb-4 overflow-hidden p-6">
+          <div className="card rise mb-4 overflow-hidden p-6">
             <p className="text-sm font-semibold text-text-muted">Safe to spend this month</p>
-            <p className={`money mt-1 text-4xl font-bold ${safeToSpend < 0 ? "text-expense" : "brand-gradient-text"}`}>
-              {formatMoney(safeToSpend)}
-            </p>
+            <AnimatedMoney
+              value={safeToSpend}
+              className={`money mt-1 block text-4xl font-bold ${safeToSpend < 0 ? "text-expense" : "brand-gradient-text"}`}
+            />
             <p className="mt-1 text-xs text-text-muted">Income − spent so far − upcoming commitments</p>
           </div>
 
@@ -96,6 +106,9 @@ export default function DashboardPage() {
             <div className="card p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">Net worth</p>
               <p className="money mt-1 text-lg font-bold">{formatMoney(netWorth)}</p>
+              {netWorthSeries.length >= 2 && (
+                <Sparkline points={netWorthSeries} className="mt-1 text-brand-400" width={80} height={20} />
+              )}
             </div>
             <div className="card p-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">In</p>

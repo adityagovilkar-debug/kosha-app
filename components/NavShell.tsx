@@ -3,25 +3,31 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Receipt, CalendarClock, LineChart, Wallet, Tags, Plus, Settings, MoreHorizontal } from "lucide-react";
+import { Home, Receipt, CalendarClock, LineChart, BarChart3, Wallet, Tags, Plus, Settings, MoreHorizontal } from "lucide-react";
 import { useQuickAdd } from "./QuickAddProvider";
 import { APP_NAME } from "@/lib/brand";
 
-// Primary destinations live in the mobile bottom bar (2 left of the FAB, 2
-// right). Secondary/management screens live behind the mobile "More" menu
-// and below a divider in the desktop sidebar.
+// Mobile bottom bar shows these four (2 left of the FAB, 2 right). Desktop
+// sidebar shows them plus DESKTOP_ONLY in its primary area.
 const PRIMARY_NAV = [
   { href: "/", label: "Home", icon: Home },
   { href: "/transactions", label: "Transactions", icon: Receipt },
-  { href: "/plan", label: "Plan", icon: CalendarClock },
+  { href: "/insights", label: "Insights", icon: BarChart3 },
   { href: "/wealth", label: "Wealth", icon: LineChart },
 ];
+
+// Prominent on desktop; folds into the mobile "More" menu to keep the
+// bottom bar uncluttered (its key surface, upcoming charges, is echoed on Home).
+const DESKTOP_ONLY = [{ href: "/plan", label: "Plan", icon: CalendarClock }];
 
 const SECONDARY_NAV = [
   { href: "/accounts", label: "Accounts", icon: Wallet },
   { href: "/categories", label: "Categories", icon: Tags },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
+
+// Everything not in the mobile bottom bar lives in the mobile "More" sheet.
+const MOBILE_MORE = [...DESKTOP_ONLY, ...SECONDARY_NAV];
 
 export function NavShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -44,7 +50,7 @@ export function NavShell({ children }: { children: React.ReactNode }) {
           <span className="text-lg font-bold tracking-tight">{APP_NAME}</span>
         </div>
         <nav className="flex flex-1 flex-col gap-1">
-          {PRIMARY_NAV.map(({ href, label, icon: Icon }) => (
+          {[...PRIMARY_NAV, ...DESKTOP_ONLY].map(({ href, label, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -82,7 +88,7 @@ export function NavShell({ children }: { children: React.ReactNode }) {
       {moreOpen && (
         <div className="fixed inset-0 z-50 flex items-end bg-black/40 md:hidden" onClick={() => setMoreOpen(false)}>
           <div className="glass w-full rounded-t-3xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))]" onClick={(e) => e.stopPropagation()}>
-            {SECONDARY_NAV.map(({ href, label, icon: Icon }) => (
+            {MOBILE_MORE.map(({ href, label, icon: Icon }) => (
               <Link
                 key={href}
                 href={href}
