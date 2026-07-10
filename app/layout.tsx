@@ -5,6 +5,7 @@ import { Providers } from "./providers";
 import { PREPAINT_SCRIPT } from "@/lib/theme";
 import { APP_NAME, APP_DESCRIPTION, BRAND_COLOR } from "@/lib/brand";
 import { NavShell } from "@/components/NavShell";
+import { AppLockGate } from "@/components/AppLockGate";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
@@ -43,7 +44,9 @@ export default function RootLayout({
       </head>
       <body className="min-h-full">
         <Providers>
-          <NavShell>{children}</NavShell>
+          <AppLockGate>
+            <NavShell>{children}</NavShell>
+          </AppLockGate>
         </Providers>
       </body>
     </html>

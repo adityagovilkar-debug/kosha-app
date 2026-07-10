@@ -13,6 +13,7 @@ import { useQuickAdd } from "@/components/QuickAddProvider";
 import { TransactionRow } from "@/components/TransactionRow";
 import { AnimatedMoney } from "@/components/AnimatedNumber";
 import { Sparkline } from "@/components/Sparkline";
+import { BackupNudge } from "@/components/BackupNudge";
 import { formatMoney } from "@/lib/money";
 
 function today() {
@@ -91,6 +92,8 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
+          <BackupNudge />
+
           {/* Hero: safe to spend */}
           <div className="card rise mb-4 overflow-hidden p-6">
             <p className="text-sm font-semibold text-text-muted">Safe to spend this month</p>

@@ -199,6 +199,7 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
   }
 
   async function submit(keepOpen: boolean) {
+    let queuedOffline = false;
     const tags = tagsInput
       .split(",")
       .map((t) => t.trim())
@@ -244,7 +245,7 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
             patch: { account_id: effectiveAccountId, date, amount: signed, type: mode, category_id: categoryId, payee: payee || undefined, note: note || undefined, tags, receipt_id: receiptId, ...currencyFields, ...taxFields },
           });
         } else {
-          await createTx.mutateAsync({
+          const result = await createTx.mutateAsync({
             account_id: effectiveAccountId,
             date,
             amount: signed,
@@ -258,9 +259,10 @@ function QuickAddForm({ editing, close }: { editing: Transaction | null; close: 
             tags,
           });
           localStorage.setItem(LAST_ACCOUNT_KEY, effectiveAccountId);
+          if (result?.queued) queuedOffline = true;
         }
       }
-      toast.success(editing ? "Transaction updated" : "Saved ✓");
+      toast.success(editing ? "Transaction updated" : queuedOffline ? "Saved offline — will sync" : "Saved ✓");
       if (keepOpen && !editing) {
         resetForNext();
       } else {

@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { supabaseBrowser } from "@/lib/supabase/browser";
+import { isOffline, enqueueTx } from "./offlineQueue";
 import type { NewTransaction, Transaction, TransactionFilters } from "./types";
 
 const sb = supabaseBrowser;
@@ -124,15 +125,18 @@ function invalidateAll(qc: ReturnType<typeof useQueryClient>) {
 export function useCreateTransaction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: NewTransaction) => {
+    mutationFn: async (input: NewTransaction): Promise<{ queued: boolean }> => {
       const user_id = await uid();
-      const { data, error } = await sb()
-        .from("kosha_transactions")
-        .insert({ tags: [], status: "cleared", ...input, user_id })
-        .select()
-        .single();
+      const row = { tags: [], status: "cleared" as const, ...input, user_id };
+      // Offline: queue durably and report "queued" so the UI can say so.
+      // The OfflineSync component flushes it when connectivity returns.
+      if (isOffline()) {
+        await enqueueTx(row);
+        return { queued: true };
+      }
+      const { error } = await sb().from("kosha_transactions").insert(row);
       if (error) throw error;
-      return data as Transaction;
+      return { queued: false };
     },
     onSuccess: () => invalidateAll(qc),
   });

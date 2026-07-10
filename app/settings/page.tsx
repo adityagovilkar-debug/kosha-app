@@ -5,6 +5,8 @@ import { toast } from "sonner";
 import { KeyRound, Plane, CheckCircle2, Sun, Moon } from "lucide-react";
 import { useApiKeyStatus, useSaveApiKey, useClearApiKey, useTripMode, setTripMode } from "@/lib/kosha/settings";
 import { useTheme } from "@/lib/theme";
+import { AppLockSettings } from "@/components/AppLockSettings";
+import { BackupSettings } from "@/components/BackupSettings";
 
 export default function SettingsPage() {
   const { data: keyStatus } = useApiKeyStatus();
@@ -69,6 +71,12 @@ export default function SettingsPage() {
           </button>
         </div>
       </div>
+
+      {/* App lock */}
+      <AppLockSettings />
+
+      {/* Backup & restore */}
+      <BackupSettings />
 
       {/* Receipt scanning */}
       <div className="card mb-6 p-5">
