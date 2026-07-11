@@ -7,6 +7,7 @@ import { useApiKeyStatus, useSaveApiKey, useClearApiKey, useTripMode, setTripMod
 import { useTheme } from "@/lib/theme";
 import { AppLockSettings } from "@/components/AppLockSettings";
 import { BackupSettings } from "@/components/BackupSettings";
+import { ChangePasswordCard } from "@/components/ChangePasswordCard";
 import { errMessage } from "@/lib/errors";
 
 export default function SettingsPage() {
@@ -75,6 +76,9 @@ export default function SettingsPage() {
 
       {/* App lock */}
       <AppLockSettings />
+
+      {/* Account — change password + sign out */}
+      <ChangePasswordCard />
 
       {/* Backup & restore */}
       <BackupSettings />
